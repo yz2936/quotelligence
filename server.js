@@ -23,7 +23,7 @@ const MIME_TYPES = {
   ".json": "application/json; charset=utf-8",
 };
 
-const server = http.createServer(async (req, res) => {
+export async function handleRequest(req, res) {
   try {
     if (!req.url) {
       return sendJson(res, 400, { error: "Missing request URL" });
@@ -431,11 +431,15 @@ const server = http.createServer(async (req, res) => {
       details: error instanceof Error ? error.message : String(error),
     });
   }
-});
+}
 
-server.listen(port, () => {
-  console.log(`QuoteCase Copilot server running at http://127.0.0.1:${port}`);
-});
+export const server = http.createServer(handleRequest);
+
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  server.listen(port, () => {
+    console.log(`QuoteCase Copilot server running at http://127.0.0.1:${port}`);
+  });
+}
 
 function summarizeCase(caseRecord) {
   const primaryProduct = caseRecord.productItems?.[0];
