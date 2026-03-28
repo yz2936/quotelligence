@@ -1,10 +1,6 @@
-import { execFile } from "node:child_process";
-import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
+import JSZip from "jszip";
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 
 export async function extractTextFromBuffer({ fileName, type, buffer }) {
   const normalizedType = String(type || inferType(fileName)).toUpperCase();
@@ -35,18 +31,17 @@ export async function extractWorkbookSheetsFromBuffer({ fileName, type, buffer }
     return null;
   }
 
-  const tempFile = await withTempFile("xlsx", buffer);
-
   try {
-    const sharedStrings = parseSharedStrings(await readZipEntry(tempFile.filePath, "xl/sharedStrings.xml"));
-    const workbookXml = await readZipEntry(tempFile.filePath, "xl/workbook.xml");
-    const relsXml = await readZipEntry(tempFile.filePath, "xl/_rels/workbook.xml.rels");
+    const zip = await JSZip.loadAsync(buffer);
+    const sharedStrings = parseSharedStrings(await readZipEntry(zip, "xl/sharedStrings.xml"));
+    const workbookXml = await readZipEntry(zip, "xl/workbook.xml");
+    const relsXml = await readZipEntry(zip, "xl/_rels/workbook.xml.rels");
     const sheets = parseWorkbookSheets(workbookXml, relsXml);
 
     const populatedSheets = [];
 
     for (const sheet of sheets) {
-      const sheetXml = await readZipEntry(tempFile.filePath, sheet.path);
+      const sheetXml = await readZipEntry(zip, sheet.path);
       const rows = parseWorksheetRecords(sheetXml, sharedStrings);
 
       populatedSheets.push({
@@ -61,24 +56,36 @@ export async function extractWorkbookSheetsFromBuffer({ fileName, type, buffer }
     };
   } catch {
     return null;
-  } finally {
-    await tempFile.cleanup();
   }
 }
 
 async function extractPdfText(buffer) {
-  const tempFile = await withTempFile("pdf", buffer);
-
   try {
-    const { stdout } = await execFileAsync("pdftotext", ["-layout", tempFile.filePath, "-"], {
-      maxBuffer: 12 * 1024 * 1024,
+    pdfjs.GlobalWorkerOptions.workerSrc = undefined;
+    const loadingTask = pdfjs.getDocument({
+      data: new Uint8Array(buffer),
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      disableFontFace: true,
     });
+    const document = await loadingTask.promise;
+    const pages = [];
 
-    return sanitizePlainText(stdout);
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
+      const content = await page.getTextContent();
+      const text = content.items
+        .map((item) => ("str" in item ? item.str : ""))
+        .join(" ");
+
+      if (text.trim()) {
+        pages.push(text);
+      }
+    }
+
+    return sanitizePlainText(pages.join("\n\n"));
   } catch {
     return "";
-  } finally {
-    await tempFile.cleanup();
   }
 }
 
@@ -99,52 +106,18 @@ async function extractXlsxText(buffer) {
 }
 
 async function extractDocxText(buffer) {
-  const tempFile = await withTempFile("docx", buffer);
-
   try {
-    const documentXml = await readZipEntry(tempFile.filePath, "word/document.xml");
+    const zip = await JSZip.loadAsync(buffer);
+    const documentXml = await readZipEntry(zip, "word/document.xml");
     return sanitizePlainText(parseXmlText(documentXml).join("\n"));
   } catch {
     return "";
-  } finally {
-    await tempFile.cleanup();
   }
 }
 
-async function withTempFile(extension, buffer) {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "quotecase-"));
-  const filePath = path.join(tempDir, `upload.${extension}`);
-  await fs.writeFile(filePath, buffer);
-
-  return {
-    filePath,
-    cleanup: async () => {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    },
-  };
-}
-
-async function listZipEntries(filePath) {
-  const { stdout } = await execFileAsync("unzip", ["-Z1", filePath], {
-    maxBuffer: 8 * 1024 * 1024,
-  });
-
-  return stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
-async function readZipEntry(filePath, entry) {
-  try {
-    const { stdout } = await execFileAsync("unzip", ["-p", filePath, entry], {
-      encoding: "utf8",
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    return stdout;
-  } catch {
-    return "";
-  }
+async function readZipEntry(zip, entry) {
+  const file = zip.file(entry);
+  return file ? file.async("string") : "";
 }
 
 function parseSharedStrings(xml) {
