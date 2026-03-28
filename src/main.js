@@ -82,6 +82,7 @@ function mount() {
 }
 
 window.addEventListener("hashchange", async () => {
+  mount();
   try {
     await syncRouteData();
   } catch (error) {
@@ -495,10 +496,20 @@ mount();
 async function syncRouteData() {
   await syncSystemStatus();
 
-  if (window.location.hash === "#/case" || window.location.hash === "#/knowledge" || window.location.hash === "#/quote" || !window.location.hash) {
-    state.loadingCases = true;
+  const needsCaseData =
+    window.location.hash === "#/case" ||
+    window.location.hash === "#/knowledge" ||
+    window.location.hash === "#/quote" ||
+    !window.location.hash;
+
+  if (needsCaseData) {
+    const shouldShowLoadingState = !state.cases.length;
+
+    state.loadingCases = shouldShowLoadingState;
     state.error = "";
-    mount();
+    if (shouldShowLoadingState) {
+      mount();
+    }
     try {
       const response = await fetchCases();
       state.cases = response.cases;

@@ -21,6 +21,7 @@ export function getAllowedCaseStatuses() {
 
 export async function buildCaseFromSubmission({ files, emailText, language = "en", now = new Date() }) {
   const parsedFiles = await Promise.all(files.map(normalizeUploadedFile));
+  const sourceContext = buildSourceContext({ emailText, parsedFiles });
   const llmResult = normalizeAnalysisResult(
     await createAnalysisWithFallback({ emailText, parsedFiles, language })
   );
@@ -42,22 +43,23 @@ export async function buildCaseFromSubmission({ files, emailText, language = "en
   ];
   const productItems = buildProductItems(llmResult);
 
-  const missingInfo = {
-    missingFields: llmResult.missing_fields,
-    ambiguousRequirements: llmResult.ambiguous_requirements,
-    lowConfidenceItems: llmResult.low_confidence_items,
-  };
+  const missingInfo = buildDerivedMissingInfo({ llmResult, sourceContext });
   const status = llmResult.current_status || deriveCaseStatus(missingInfo);
+  const derivedAiSummary = buildDerivedAiSummary({ llmResult, missingInfo, sourceContext });
   const aiSummary = {
-    whatCustomerNeeds: llmResult.ai_summary.what_customer_needs,
-    straightforward: llmResult.ai_summary.straightforward,
-    needsClarification: llmResult.ai_summary.needs_clarification,
-    knowledgeBaseChecks: llmResult.ai_summary.knowledge_base_checks,
-    recommendedNextStep: llmResult.ai_summary.recommended_next_step,
-    mainRisks: llmResult.ai_summary.main_risks,
+    whatCustomerNeeds: derivedAiSummary.what_customer_needs,
+    straightforward: derivedAiSummary.straightforward,
+    needsClarification: derivedAiSummary.needs_clarification,
+    knowledgeBaseChecks: derivedAiSummary.knowledge_base_checks,
+    recommendedNextStep: derivedAiSummary.recommended_next_step,
+    mainRisks: derivedAiSummary.main_risks,
     currentStatus: status,
   };
-  const suggestedQuestions = llmResult.suggested_questions;
+  const suggestedQuestions = buildDerivedSuggestedQuestions({
+    llmResult,
+    missingInfo,
+    sourceContext,
+  });
   const timestamp = now.toISOString().slice(0, 10);
 
   return initializeCaseWorkflow({
@@ -486,8 +488,17 @@ function detectProductType(text) {
 }
 
 function detectMaterial(text) {
+  const astmGradeMatch = text.match(/\b(astm\s+a\d+\s+tp\s*\d+[a-z]*)\b/i);
+  if (astmGradeMatch) {
+    return detected(astmGradeMatch[1].replace(/\s+/g, " ").toUpperCase());
+  }
+
   if (text.includes("a312 tp316l") || text.includes("316l")) {
     return detected("ASTM A312 TP316L");
+  }
+
+  if (text.includes("304l")) {
+    return detected("ASTM A312 TP304L");
   }
 
   return unknown();
@@ -525,6 +536,11 @@ function detectQuantity(text) {
 
 function detectRequestedStandards(text) {
   const values = [];
+
+  const astmMatch = text.match(/\b(astm\s+a\d+)\b/i);
+  if (astmMatch) {
+    values.push(astmMatch[1].replace(/\s+/g, " ").toUpperCase());
+  }
 
   if (text.includes("en 10204 3.1")) {
     values.push("EN 10204 3.1");
@@ -569,6 +585,11 @@ function detectDeliveryRequest(text) {
 }
 
 function detectDestination(text) {
+  const match = text.match(/(?:destination|deliver(?:y|ed)?\s+to|ship(?:ped)?\s+to)\s*[:\-]?\s*([a-z][a-z\s,-]{2,40})/i);
+  if (match) {
+    return detected(match[1].trim().replace(/\.$/, ""), "medium");
+  }
+
   if (text.includes("singapore")) {
     return detected("Singapore");
   }
@@ -630,6 +651,280 @@ function buildSuggestedQuestions(missingInfo) {
   questions.push("Please confirm whether partial shipment is acceptable.");
 
   return questions.slice(0, 8);
+}
+
+function buildSourceContext({ emailText, parsedFiles }) {
+  const sourceText = [emailText, ...parsedFiles.map((file) => file.extractedText)]
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    sourceText,
+    normalizedText: sourceText.toLowerCase(),
+  };
+}
+
+function buildDerivedMissingInfo({ llmResult, sourceContext }) {
+  const missingFields = [];
+  const ambiguousRequirements = [];
+  const lowConfidenceItems = [];
+  const productItems = Array.isArray(llmResult.product_items) ? llmResult.product_items : [];
+  const primaryItem = productItems[0] || {};
+
+  addUnique(missingFields, !hasMeaningfulValue(llmResult.product_type), "Product type is not clearly stated.");
+  addUnique(missingFields, !hasMeaningfulValue(llmResult.material_grade), "Material grade is not clearly stated.");
+  addUnique(missingFields, !hasMeaningfulValue(llmResult.quantity), "Quantity is not clearly stated.");
+  addUnique(missingFields, !hasMeaningfulValue(llmResult.destination), "Destination is not clearly stated.");
+  addUnique(missingFields, !hasMeaningfulValue(llmResult.delivery_request), "Requested delivery timing is not clearly stated.");
+
+  addUnique(
+    ambiguousRequirements,
+    mentionsTerm(sourceContext.normalizedText, "nace") && !/(mr0175|mr0103|iso\s*15156)/i.test(sourceContext.sourceText),
+    "Exact NACE standard reference still needs confirmation."
+  );
+  addUnique(
+    ambiguousRequirements,
+    mentionsTerm(sourceContext.normalizedText, "witness") && !/(third[- ]party|tpi|inspection agency|surveyor)/i.test(sourceContext.sourceText),
+    "Witness inspection scope and responsible party still need confirmation."
+  );
+  addUnique(
+    ambiguousRequirements,
+    mentionsTerm(sourceContext.normalizedText, "pmi") && productItems.length > 1,
+    "Please confirm whether PMI applies to all line items or selected products only."
+  );
+  addUnique(
+    ambiguousRequirements,
+    mentionsTerm(sourceContext.normalizedText, "hydro") && productItems.length > 1,
+    "Please confirm whether hydrotest is required for all line items or selected products only."
+  );
+
+  addUnique(
+    lowConfidenceItems,
+    productItems.some((item) => !hasMeaningfulValue(item.outside_dimension || item.dimensions)),
+    "At least one product is missing a confirmed outside dimension."
+  );
+  addUnique(
+    lowConfidenceItems,
+    productItems.some((item) => !hasMeaningfulValue(item.wall_thickness) && !hasMeaningfulValue(item.schedule)),
+    "At least one product is missing a confirmed wall thickness or schedule."
+  );
+  addUnique(
+    lowConfidenceItems,
+    hasMeaningfulValue(primaryItem.quantity) && !/\b(meters?|pcs?|pieces?|tons?|kg|sets?|lots?)\b/i.test(primaryItem.quantity),
+    `Quantity unit may be ambiguous: ${cleanValue(primaryItem.quantity)}`
+  );
+
+  return {
+    missingFields: dedupeStrings(missingFields),
+    ambiguousRequirements: dedupeStrings(ambiguousRequirements),
+    lowConfidenceItems: dedupeStrings(lowConfidenceItems),
+  };
+}
+
+function buildDerivedAiSummary({ llmResult, missingInfo, sourceContext }) {
+  const productSummary = summarizeRequestedProducts(llmResult.product_items);
+  const requirementSummary = summarizeRequirements(llmResult);
+  const blockerSummary = [...missingInfo.missingFields, ...missingInfo.ambiguousRequirements].slice(0, 2);
+  const risks = buildMainRisks({ llmResult, missingInfo, sourceContext });
+
+  return {
+    what_customer_needs:
+      productSummary && requirementSummary
+        ? `${productSummary}. ${requirementSummary}.`
+        : productSummary || requirementSummary || llmResult.ai_summary.what_customer_needs,
+    straightforward:
+      missingInfo.missingFields.length || missingInfo.ambiguousRequirements.length
+        ? "Core product requirements are partially extracted, but commercial quoting is still blocked by unresolved technical or compliance details."
+        : "Core product, delivery, and compliance requirements are sufficiently defined for pricing review.",
+    needs_clarification:
+      blockerSummary.length
+        ? blockerSummary.join(" ")
+        : llmResult.ai_summary.needs_clarification || "No major clarification blockers identified from the current RFQ text.",
+    knowledge_base_checks: buildKnowledgeCheckSummary(llmResult),
+    recommended_next_step:
+      blockerSummary.length
+        ? "Send the clarification questions to the customer, then confirm supplier and compliance support before pricing."
+        : "Validate supplier capability against the extracted specifications and move into pricing review.",
+    main_risks: risks.length ? risks : llmResult.ai_summary.main_risks,
+  };
+}
+
+function buildDerivedSuggestedQuestions({ llmResult, missingInfo, sourceContext }) {
+  const questions = [];
+
+  addUnique(
+    questions,
+    missingInfo.missingFields.some((item) => item.toLowerCase().includes("destination")),
+    "Please confirm the final delivery destination and consignee location."
+  );
+  addUnique(
+    questions,
+    missingInfo.missingFields.some((item) => item.toLowerCase().includes("delivery")),
+    "Please confirm the required delivery date or maximum acceptable lead time."
+  );
+  addUnique(
+    questions,
+    missingInfo.missingFields.some((item) => item.toLowerCase().includes("material")),
+    "Please confirm the required material grade for the quoted item."
+  );
+  addUnique(
+    questions,
+    missingInfo.ambiguousRequirements.some((item) => item.toLowerCase().includes("nace")),
+    "Please confirm whether NACE is required and specify the exact standard, such as MR0175 or ISO 15156."
+  );
+  addUnique(
+    questions,
+    missingInfo.ambiguousRequirements.some((item) => item.toLowerCase().includes("witness")),
+    "Please confirm whether witness inspection is required, who will witness it, and what scope should be covered."
+  );
+  addUnique(
+    questions,
+    missingInfo.ambiguousRequirements.some((item) => item.toLowerCase().includes("pmi")),
+    "Please confirm whether PMI applies to all items or only selected line items."
+  );
+  addUnique(
+    questions,
+    missingInfo.ambiguousRequirements.some((item) => item.toLowerCase().includes("hydrotest")),
+    "Please confirm whether hydrotest is required for all items or only selected line items."
+  );
+  addUnique(
+    questions,
+    !hasMeaningfulValue(llmResult.documentation_requirements) && /en\s*10204|3\.1|3\.2|mill test certificate|mtc/i.test(sourceContext.sourceText),
+    "Please confirm the exact document package required with the shipment, including whether EN 10204 3.1 or 3.2 certification is needed."
+  );
+
+  return dedupeStrings(questions).slice(0, 8);
+}
+
+function summarizeRequestedProducts(productItems) {
+  if (!Array.isArray(productItems) || !productItems.length) {
+    return "";
+  }
+
+  const parts = productItems.slice(0, 2).map((item) => {
+    const descriptors = [
+      cleanValue(item.product_type),
+      cleanValue(item.material_grade),
+      cleanValue(item.outside_dimension || item.dimensions),
+      cleanValue(item.wall_thickness || item.schedule),
+      cleanValue(item.length_per_piece),
+      cleanValue(item.quantity),
+    ].filter(Boolean);
+
+    return descriptors.join(", ");
+  });
+
+  const prefix = productItems.length > 1 ? "Customer is requesting multiple items including" : "Customer is requesting";
+  return `${prefix} ${parts.join(" and ")}`;
+}
+
+function summarizeRequirements(llmResult) {
+  const parts = [
+    hasMeaningfulValue(llmResult.destination) ? `delivery to ${cleanValue(llmResult.destination)}` : "",
+    hasMeaningfulValue(llmResult.delivery_request) ? `requested lead time ${cleanValue(llmResult.delivery_request)}` : "",
+    hasMeaningfulValue(llmResult.documentation_requirements) ? `documents ${cleanValue(llmResult.documentation_requirements)}` : "",
+    hasMeaningfulValue(llmResult.inspection_requirements) ? `inspection/testing ${cleanValue(llmResult.inspection_requirements)}` : "",
+    hasMeaningfulValue(llmResult.requested_standards) ? `standards ${cleanValue(llmResult.requested_standards)}` : "",
+  ].filter(Boolean);
+
+  return parts.length ? `Key requirements include ${parts.join(", ")}` : "";
+}
+
+function buildKnowledgeCheckSummary(llmResult) {
+  const checks = [];
+
+  if (hasMeaningfulValue(llmResult.material_grade)) {
+    checks.push(`supplier capability for ${cleanValue(llmResult.material_grade)}`);
+  }
+
+  if (hasMeaningfulValue(llmResult.requested_standards)) {
+    checks.push(`compliance evidence for ${cleanValue(llmResult.requested_standards)}`);
+  }
+
+  if (hasMeaningfulValue(llmResult.documentation_requirements)) {
+    checks.push(`document package support for ${cleanValue(llmResult.documentation_requirements)}`);
+  }
+
+  if (hasMeaningfulValue(llmResult.inspection_requirements)) {
+    checks.push(`inspection support for ${cleanValue(llmResult.inspection_requirements)}`);
+  }
+
+  return checks.length
+    ? `Check ${checks.join(", ")} in the knowledge base and prior quote history.`
+    : "Check capability files, prior quote records, and compliance certificates against the extracted requirements.";
+}
+
+function buildMainRisks({ llmResult, missingInfo, sourceContext }) {
+  const risks = [
+    ...missingInfo.missingFields,
+    ...missingInfo.ambiguousRequirements,
+  ];
+
+  addUnique(
+    risks,
+    hasMeaningfulValue(llmResult.delivery_request) && /(\b[1-3]\s*(day|days|week|weeks)\b)/i.test(llmResult.delivery_request),
+    `Requested delivery timing may be aggressive: ${cleanValue(llmResult.delivery_request)}.`
+  );
+  addUnique(
+    risks,
+    hasMeaningfulValue(llmResult.documentation_requirements) || /en\s*10204|3\.1|3\.2|mtc/i.test(sourceContext.sourceText),
+    "Documentation requirements must align with supplier certificates before quoting."
+  );
+  addUnique(
+    risks,
+    hasMeaningfulValue(llmResult.inspection_requirements),
+    `Inspection requirements may affect cost and lead time: ${cleanValue(llmResult.inspection_requirements)}.`
+  );
+
+  return dedupeStrings(risks).slice(0, 5);
+}
+
+function hasMeaningfulValue(value) {
+  return Boolean(cleanValue(value));
+}
+
+function cleanValue(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || /^not clearly stated$/i.test(trimmed)) {
+    return "";
+  }
+
+  return trimmed;
+}
+
+function mentionsTerm(text, term) {
+  return text.includes(term);
+}
+
+function addUnique(items, condition, value) {
+  if (condition && value) {
+    items.push(value);
+  }
+}
+
+function dedupeStrings(items) {
+  const seen = new Set();
+  const deduped = [];
+
+  for (const item of items) {
+    const normalized = String(item || "").trim();
+
+    if (!normalized) {
+      continue;
+    }
+
+    const key = normalized.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(normalized);
+    }
+  }
+
+  return deduped;
 }
 
 function detected(value, confidence = "high") {

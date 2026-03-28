@@ -32,6 +32,7 @@ test("buildCaseFromSubmission parses uploaded intake into a real case record", a
   assert.ok(
     result.suggestedQuestions.some((question) => question.toLowerCase().includes("nace"))
   );
+  assert.ok(result.aiSummary.whatCustomerNeeds.includes("Singapore"));
 });
 
 test("deriveCaseStatus keeps unresolved work out of ready-to-quote", () => {
@@ -110,6 +111,63 @@ test("normalizeAnalysisResult accepts agent pipeline response shape", () => {
   assert.equal(normalized.destination, "Singapore");
   assert.deepEqual(normalized.ambiguous_requirements, ["Exact NACE requirement is not stated."]);
   assert.equal(normalized.current_status, "Needs Clarification");
+});
+
+test("buildCaseFromSubmission builds evidence-based summary, risks, and clarification questions", async () => {
+  const file = new File(
+    [
+      [
+        "Customer: Apex Refining",
+        "Please quote seamless stainless steel pipe ASTM A312 TP316L 2 in SCH40, 6m random length, quantity 1200 meters.",
+        "Destination: Singapore.",
+        "Required delivery: 4 weeks.",
+        "Documentation: EN 10204 3.1.",
+        "Inspection: PMI, hydrotest, witness inspection.",
+        "NACE may be required.",
+      ].join("\n"),
+    ],
+    "detailed-rfq.txt",
+    { type: "text/plain" }
+  );
+
+  const result = await buildCaseFromSubmission({
+    files: [file],
+    emailText: "",
+    now: new Date("2026-03-24T12:34:56Z"),
+  });
+
+  assert.match(result.aiSummary.whatCustomerNeeds, /ASTM A312 TP316L/i);
+  assert.match(result.aiSummary.whatCustomerNeeds, /Singapore/i);
+  assert.ok(
+    result.aiSummary.mainRisks.some((risk) => /NACE|witness|Documentation/i.test(risk))
+  );
+  assert.ok(
+    result.suggestedQuestions.some((question) => /NACE.*standard/i.test(question))
+  );
+  assert.ok(
+    result.suggestedQuestions.some((question) => /witness inspection/i.test(question))
+  );
+});
+
+test("buildCaseFromSubmission avoids injecting unrelated clarification blockers", async () => {
+  const file = new File(
+    [
+      "Customer: Harbor Mechanical\nPlease quote seamless pipe ASTM A312 TP304L 4 in SCH40, 6m, 300 meters, delivery to Houston in 8 weeks.",
+    ],
+    "simple-rfq.txt",
+    { type: "text/plain" }
+  );
+
+  const result = await buildCaseFromSubmission({
+    files: [file],
+    emailText: "",
+    now: new Date("2026-03-24T12:34:56Z"),
+  });
+
+  assert.equal(
+    result.suggestedQuestions.some((question) => /NACE|witness inspection/i.test(question)),
+    false
+  );
 });
 
 test("allowed statuses match the PRD workflow", () => {
