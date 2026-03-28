@@ -1,0 +1,751 @@
+import path from "node:path";
+import { extractTextFromBuffer } from "./file-text-extractor.js";
+import { generateCaseAnalysis } from "./openai-client.js";
+import { initializeCaseWorkflow } from "./workflow-engine.js";
+import { runAgent1, runAgent2, mapPipelineToCaseFields } from "./agent-pipeline.js";
+
+const ALLOWED_CASE_STATUSES = [
+  "New",
+  "Parsing",
+  "Ready for Review",
+  "Needs Clarification",
+  "Under Knowledge Review",
+  "Partially Supported",
+  "Ready to Quote",
+  "Escalate Internally",
+];
+
+export function getAllowedCaseStatuses() {
+  return [...ALLOWED_CASE_STATUSES];
+}
+
+export async function buildCaseFromSubmission({ files, emailText, language = "en", now = new Date() }) {
+  const parsedFiles = await Promise.all(files.map(normalizeUploadedFile));
+  const llmResult = normalizeAnalysisResult(
+    await createAnalysisWithFallback({ emailText, parsedFiles, language })
+  );
+  const extractedFields = [
+    createField("Product Type", llmResult.product_type, inferConfidence(llmResult.product_type), sourceReferenceForField(parsedFiles, "Product Type")),
+    createField("Material / Grade", llmResult.material_grade, inferConfidence(llmResult.material_grade), sourceReferenceForField(parsedFiles, "Material / Grade")),
+    createField("Dimensions", llmResult.dimensions, inferConfidence(llmResult.dimensions), sourceReferenceForField(parsedFiles, "Dimensions")),
+    createField("Outside Dimension", llmResult.outside_dimension, inferConfidence(llmResult.outside_dimension), sourceReferenceForField(parsedFiles, "Outside Dimension")),
+    createField("Wall Thickness", llmResult.wall_thickness, inferConfidence(llmResult.wall_thickness), sourceReferenceForField(parsedFiles, "Wall Thickness")),
+    createField("Schedule", llmResult.schedule, inferConfidence(llmResult.schedule), sourceReferenceForField(parsedFiles, "Schedule")),
+    createField("Length Per Piece", llmResult.length_per_piece, inferConfidence(llmResult.length_per_piece), sourceReferenceForField(parsedFiles, "Length Per Piece")),
+    createField("Quantity", llmResult.quantity, inferConfidence(llmResult.quantity), sourceReferenceForField(parsedFiles, "Quantity")),
+    createField("Requested Standards", llmResult.requested_standards, inferConfidence(llmResult.requested_standards), sourceReferenceForField(parsedFiles, "Requested Standards")),
+    createField("Inspection Requirements", llmResult.inspection_requirements, inferConfidence(llmResult.inspection_requirements), sourceReferenceForField(parsedFiles, "Inspection Requirements")),
+    createField("Documentation Requirements", llmResult.documentation_requirements, inferConfidence(llmResult.documentation_requirements), sourceReferenceForField(parsedFiles, "Documentation Requirements")),
+    createField("Delivery Request", llmResult.delivery_request, inferConfidence(llmResult.delivery_request), sourceReferenceForField(parsedFiles, "Delivery Request")),
+    createField("Destination", llmResult.destination, inferConfidence(llmResult.destination), sourceReferenceForField(parsedFiles, "Destination")),
+    createField("Special Notes", llmResult.special_notes, inferConfidence(llmResult.special_notes), "Intake summary"),
+  ];
+  const productItems = buildProductItems(llmResult);
+
+  const missingInfo = {
+    missingFields: llmResult.missing_fields,
+    ambiguousRequirements: llmResult.ambiguous_requirements,
+    lowConfidenceItems: llmResult.low_confidence_items,
+  };
+  const status = llmResult.current_status || deriveCaseStatus(missingInfo);
+  const aiSummary = {
+    whatCustomerNeeds: llmResult.ai_summary.what_customer_needs,
+    straightforward: llmResult.ai_summary.straightforward,
+    needsClarification: llmResult.ai_summary.needs_clarification,
+    knowledgeBaseChecks: llmResult.ai_summary.knowledge_base_checks,
+    recommendedNextStep: llmResult.ai_summary.recommended_next_step,
+    mainRisks: llmResult.ai_summary.main_risks,
+    currentStatus: status,
+  };
+  const suggestedQuestions = llmResult.suggested_questions;
+  const timestamp = now.toISOString().slice(0, 10);
+
+  return initializeCaseWorkflow({
+    actor: "system",
+    now,
+    caseRecord: {
+    caseId: createCaseId(now),
+    title: buildTitle(llmResult.customer_name, llmResult.product_type),
+    customerName: llmResult.customer_name || "Unspecified Customer",
+    projectName: llmResult.project_name || "Customer RFQ Review",
+    owner: "Unassigned",
+    status,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    sourceFiles: parsedFiles.map((file, index) => ({
+      fileId: `src-${index + 1}`,
+      name: file.name,
+      type: file.type,
+      sourceReference: file.sourceReference,
+      })),
+    productItems,
+    extractedFields,
+    missingInfo,
+    aiSummary,
+    suggestedQuestions,
+    knowledgeComparison: null,
+    quoteEstimate: null,
+    quoteEmailDraft: null,
+    quoteHistory: [],
+    workflow: null,
+    timeline: [],
+    },
+  });
+}
+
+async function createAnalysisWithFallback({ emailText, parsedFiles, language }) {
+  const hasConfiguredOpenAI = Boolean(String(process.env.OPENAI_API_KEY || "").trim());
+
+  if (hasConfiguredOpenAI) {
+    // Try Agent 1+2 pipeline first (richer extraction + technical normalization)
+    try {
+      const agent1Result = await runAgent1({ emailText, files: parsedFiles, language });
+      const agent2Result = await runAgent2({ agent1Result, language });
+      return mapPipelineToCaseFields(agent1Result, agent2Result);
+    } catch (pipelineError) {
+      console.error("Agent pipeline (1+2) failed, falling back to standard analysis:", pipelineError);
+    }
+
+    // Fall back to single-step generateCaseAnalysis
+    try {
+      return await generateCaseAnalysis({ emailText, files: parsedFiles, language });
+    } catch (error) {
+      throw new Error(
+        `OpenAI intake parsing failed while AI parsing is enabled: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  console.error("No OpenAI API key configured, using heuristic parsing.");
+  return buildHeuristicAnalysis({ emailText, parsedFiles });
+}
+
+export function deriveMissingInfo(extractedFields) {
+  const read = (fieldName) =>
+    extractedFields.find((field) => field.fieldName === fieldName)?.value.toLowerCase() || "";
+
+  const lowConfidenceItems = extractedFields
+    .filter((field) => field.confidence !== "high")
+    .map((field) => `${field.fieldName}: ${field.value}`);
+
+  const missingFields = [];
+  const ambiguousRequirements = [];
+
+  if (!read("Destination") || read("Destination").includes("not clearly stated")) {
+    missingFields.push("Destination is not clearly stated.");
+  }
+
+  if (!read("Requested Standards").includes("nace")) {
+    ambiguousRequirements.push("Exact NACE requirement is not stated.");
+  } else {
+    ambiguousRequirements.push("Exact NACE standard reference still needs confirmation.");
+  }
+
+  if (!read("Inspection Requirements").includes("witness")) {
+    ambiguousRequirements.push("Third-party inspection witness requirement is unclear.");
+  } else {
+    ambiguousRequirements.push("Witness inspection scope requires manual confirmation.");
+  }
+
+  if (!read("Delivery Request") || read("Delivery Request").includes("not clearly stated")) {
+    missingFields.push("Delivery request is not clearly stated.");
+  }
+
+  ambiguousRequirements.push("Partial shipment acceptance is not specified.");
+
+  return { missingFields, ambiguousRequirements, lowConfidenceItems };
+}
+
+export function deriveCaseStatus(missingInfo) {
+  const missingFields = Array.isArray(missingInfo?.missingFields) ? missingInfo.missingFields : [];
+  const ambiguousRequirements = Array.isArray(missingInfo?.ambiguousRequirements)
+    ? missingInfo.ambiguousRequirements
+    : [];
+  const lowConfidenceItems = Array.isArray(missingInfo?.lowConfidenceItems)
+    ? missingInfo.lowConfidenceItems
+    : [];
+
+  if (missingFields.length > 0 || ambiguousRequirements.length > 0) {
+    return "Needs Clarification";
+  }
+
+  if (lowConfidenceItems.length > 0) {
+    return "Ready for Review";
+  }
+
+  return "Ready to Quote";
+}
+
+export function normalizeAnalysisResult(result) {
+  const normalizedProductItems = normalizeProductItems(
+    result?.product_items,
+    result?.productItems
+  );
+  const extractedFieldLookup = buildExtractedFieldLookup(result?.extractedFields);
+  const aiSummary = normalizeAiSummary(result?.ai_summary, result?.aiSummary);
+  const missingInfo = normalizeMissingInfo(result);
+
+  return {
+    customer_name: firstDefinedText(
+      result?.customer_name,
+      result?.customerName,
+      "Unspecified Customer"
+    ),
+    project_name: firstDefinedText(
+      result?.project_name,
+      result?.projectName,
+      "Customer RFQ Review"
+    ),
+    product_type: firstDefinedText(
+      result?.product_type,
+      extractedFieldLookup["Product Type"],
+      normalizedProductItems[0]?.product_type
+    ),
+    material_grade: firstDefinedText(
+      result?.material_grade,
+      extractedFieldLookup["Material / Grade"],
+      normalizedProductItems[0]?.material_grade
+    ),
+    dimensions: firstDefinedText(
+      result?.dimensions,
+      extractedFieldLookup.Dimensions,
+      normalizedProductItems[0]?.dimensions
+    ),
+    outside_dimension: firstDefinedText(
+      result?.outside_dimension,
+      extractedFieldLookup["Outside Dimension"],
+      normalizedProductItems[0]?.outside_dimension
+    ),
+    wall_thickness: firstDefinedText(
+      result?.wall_thickness,
+      extractedFieldLookup["Wall Thickness"],
+      normalizedProductItems[0]?.wall_thickness
+    ),
+    schedule: firstDefinedText(
+      result?.schedule,
+      extractedFieldLookup.Schedule,
+      normalizedProductItems[0]?.schedule
+    ),
+    length_per_piece: firstDefinedText(
+      result?.length_per_piece,
+      extractedFieldLookup["Length Per Piece"],
+      normalizedProductItems[0]?.length_per_piece
+    ),
+    quantity: firstDefinedText(
+      result?.quantity,
+      extractedFieldLookup.Quantity,
+      normalizedProductItems[0]?.quantity
+    ),
+    requested_standards: firstDefinedText(
+      result?.requested_standards,
+      extractedFieldLookup["Requested Standards"]
+    ),
+    inspection_requirements: firstDefinedText(
+      result?.inspection_requirements,
+      extractedFieldLookup["Inspection Requirements"]
+    ),
+    documentation_requirements: firstDefinedText(
+      result?.documentation_requirements,
+      extractedFieldLookup["Documentation Requirements"]
+    ),
+    delivery_request: firstDefinedText(
+      result?.delivery_request,
+      extractedFieldLookup["Delivery Request"]
+    ),
+    destination: firstDefinedText(
+      result?.destination,
+      extractedFieldLookup.Destination
+    ),
+    special_notes: firstDefinedText(
+      result?.special_notes,
+      extractedFieldLookup["Special Notes"],
+      ""
+    ),
+    missing_fields: missingInfo.missingFields,
+    ambiguous_requirements: missingInfo.ambiguousRequirements,
+    low_confidence_items: missingInfo.lowConfidenceItems,
+    suggested_questions: normalizeStringArray(result?.suggested_questions, result?.suggestedQuestions),
+    product_items: normalizedProductItems,
+    ai_summary: aiSummary,
+    current_status: firstDefinedText(
+      result?.current_status,
+      result?.status,
+      deriveCaseStatus(missingInfo)
+    ),
+  };
+}
+
+function createField(fieldName, value, confidence, sourceReference) {
+  return {
+    fieldName,
+    value,
+    confidence,
+    confidenceLabel: confidence === "high" ? "Ready for Review" : confidence === "medium" ? "Needs Clarification" : "Escalate Internally",
+    sourceReference,
+    isUserEdited: false,
+    notes: confidence === "high" ? "" : "Requires manual review.",
+  };
+}
+
+function buildProductItems(llmResult) {
+  if (Array.isArray(llmResult.product_items) && llmResult.product_items.length) {
+    return llmResult.product_items.map((item, index) => ({
+      productId: `product-${index + 1}`,
+      label: item.label || `Product ${index + 1}`,
+      productType: item.product_type,
+      materialGrade: item.material_grade,
+      dimensions: item.dimensions,
+      outsideDimension: item.outside_dimension,
+      wallThickness: item.wall_thickness,
+      schedule: item.schedule,
+      lengthPerPiece: item.length_per_piece,
+      quantity: item.quantity,
+    }));
+  }
+
+  return [
+    {
+      productId: "product-1",
+      label: "Product 1",
+      productType: llmResult.product_type,
+      materialGrade: llmResult.material_grade,
+      dimensions: llmResult.dimensions,
+      outsideDimension: llmResult.outside_dimension,
+      wallThickness: llmResult.wall_thickness,
+      schedule: llmResult.schedule,
+      lengthPerPiece: llmResult.length_per_piece,
+      quantity: llmResult.quantity,
+    },
+  ];
+}
+
+function inferConfidence(value) {
+  if (!value || value === "Not clearly stated") {
+    return "low";
+  }
+
+  return value.length < 6 ? "medium" : "high";
+}
+
+function sourceReferenceForField(parsedFiles) {
+  return parsedFiles[0]?.sourceReference || "Parsed intake text";
+}
+
+function normalizeMissingInfo(result) {
+  return {
+    missingFields: normalizeStringArray(
+      result?.missing_fields,
+      result?.missingInfo?.missingFields
+    ),
+    ambiguousRequirements: normalizeStringArray(
+      result?.ambiguous_requirements,
+      result?.missingInfo?.ambiguousRequirements
+    ),
+    lowConfidenceItems: normalizeStringArray(
+      result?.low_confidence_items,
+      result?.missingInfo?.lowConfidenceItems
+    ),
+  };
+}
+
+function normalizeAiSummary(snakeCaseSummary, camelCaseSummary) {
+  return {
+    what_customer_needs: firstDefinedText(
+      snakeCaseSummary?.what_customer_needs,
+      camelCaseSummary?.whatCustomerNeeds
+    ),
+    straightforward: firstDefinedText(
+      snakeCaseSummary?.straightforward,
+      camelCaseSummary?.straightforward
+    ),
+    needs_clarification: firstDefinedText(
+      snakeCaseSummary?.needs_clarification,
+      camelCaseSummary?.needsClarification
+    ),
+    knowledge_base_checks: firstDefinedText(
+      snakeCaseSummary?.knowledge_base_checks,
+      camelCaseSummary?.knowledgeBaseChecks
+    ),
+    recommended_next_step: firstDefinedText(
+      snakeCaseSummary?.recommended_next_step,
+      camelCaseSummary?.recommendedNextStep
+    ),
+    main_risks: normalizeStringArray(
+      snakeCaseSummary?.main_risks,
+      camelCaseSummary?.mainRisks
+    ),
+  };
+}
+
+function normalizeProductItems(snakeCaseItems, camelCaseItems) {
+  if (Array.isArray(snakeCaseItems) && snakeCaseItems.length) {
+    return snakeCaseItems.map((item, index) => ({
+      label: firstDefinedText(item?.label, `Product ${index + 1}`),
+      product_type: firstDefinedText(item?.product_type),
+      material_grade: firstDefinedText(item?.material_grade),
+      dimensions: firstDefinedText(item?.dimensions),
+      outside_dimension: firstDefinedText(item?.outside_dimension),
+      wall_thickness: firstDefinedText(item?.wall_thickness),
+      schedule: firstDefinedText(item?.schedule),
+      length_per_piece: firstDefinedText(item?.length_per_piece),
+      quantity: firstDefinedText(item?.quantity),
+    }));
+  }
+
+  if (Array.isArray(camelCaseItems) && camelCaseItems.length) {
+    return camelCaseItems.map((item, index) => ({
+      label: firstDefinedText(item?.label, `Product ${index + 1}`),
+      product_type: firstDefinedText(item?.productType),
+      material_grade: firstDefinedText(item?.materialGrade),
+      dimensions: firstDefinedText(item?.dimensions),
+      outside_dimension: firstDefinedText(item?.outsideDimension),
+      wall_thickness: firstDefinedText(item?.wallThickness),
+      schedule: firstDefinedText(item?.schedule),
+      length_per_piece: firstDefinedText(item?.lengthPerPiece),
+      quantity: firstDefinedText(item?.quantity),
+    }));
+  }
+
+  return [];
+}
+
+function buildExtractedFieldLookup(extractedFields) {
+  if (!Array.isArray(extractedFields)) {
+    return {};
+  }
+
+  return extractedFields.reduce((lookup, field) => {
+    if (field?.fieldName) {
+      lookup[field.fieldName] = firstDefinedText(field.value);
+    }
+
+    return lookup;
+  }, {});
+}
+
+function normalizeStringArray(...candidates) {
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate
+        .map((value) => (typeof value === "string" ? value.trim() : String(value || "").trim()))
+        .filter(Boolean);
+    }
+  }
+
+  return [];
+}
+
+function firstDefinedText(...candidates) {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") {
+      const trimmed = candidate.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+
+  return "Not clearly stated";
+}
+
+async function normalizeUploadedFile(file) {
+  const name = file.name || "uploaded-file";
+  const type = inferType(name);
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const extractedText = await extractTextFromBuffer({
+    fileName: name,
+    type,
+    buffer,
+  });
+
+  return {
+    name,
+    type,
+    extractedText,
+    sourceReference: extractedText ? `${name} extracted text` : `${name} metadata only`,
+  };
+}
+
+function extractCustomerName(emailText) {
+  const match = emailText.match(/customer[:\-]\s*(.+)/i);
+  return match?.[1]?.trim() || "";
+}
+
+function detectProductType(text) {
+  if (text.includes("seamless pipe")) {
+    return detected("Seamless Pipe");
+  }
+
+  if (text.includes("pipe")) {
+    return detected("Pipe", "medium");
+  }
+
+  return unknown();
+}
+
+function detectMaterial(text) {
+  if (text.includes("a312 tp316l") || text.includes("316l")) {
+    return detected("ASTM A312 TP316L");
+  }
+
+  return unknown();
+}
+
+function detectDimensions(text) {
+  const match = text.match(/(\d+(\.\d+)?\s?(in|inch|”|")\s*sch\s*\d+\s*,?\s*\d+\s?m)/i);
+  return match ? detected(match[1], "medium") : unknown();
+}
+
+function detectOutsideDimension(text) {
+  const match = text.match(/(\d+(\.\d+)?\s?(in|inch|”|"))/i);
+  return match ? detected(match[1], "medium") : unknown();
+}
+
+function detectWallThickness(text) {
+  const match = text.match(/(\d+(\.\d+)?\s?(mm|in|inch)\s*(wt|wall thickness))/i);
+  return match ? detected(match[1], "medium") : unknown();
+}
+
+function detectSchedule(text) {
+  const match = text.match(/(sch\s*\d+)/i);
+  return match ? detected(match[1].toUpperCase(), "medium") : unknown();
+}
+
+function detectLengthPerPiece(text) {
+  const match = text.match(/(\d+(\.\d+)?\s?(m|meter|meters|ft|feet)\s*(each|per piece)?)/i);
+  return match ? detected(match[1], "medium") : unknown();
+}
+
+function detectQuantity(text) {
+  const match = text.match(/(\d[\d,]*\s*(meters|meter|pcs|pieces|tons))/i);
+  return match ? detected(match[1], "medium") : unknown();
+}
+
+function detectRequestedStandards(text) {
+  const values = [];
+
+  if (text.includes("en 10204 3.1")) {
+    values.push("EN 10204 3.1");
+  }
+
+  if (text.includes("nace")) {
+    values.push("NACE");
+  }
+
+  return values.length ? detected(values.join(", "), values.length > 1 ? "medium" : "medium") : unknown();
+}
+
+function detectInspectionRequirements(text) {
+  const values = [];
+
+  if (text.includes("pmi")) {
+    values.push("PMI");
+  }
+
+  if (text.includes("hydrotest")) {
+    values.push("Hydrotest");
+  }
+
+  if (text.includes("witness")) {
+    values.push("Witness Inspection");
+  }
+
+  return values.length ? detected(values.join(", "), "medium") : unknown();
+}
+
+function detectDocumentationRequirements(text) {
+  if (text.includes("en 10204 3.1")) {
+    return detected("EN 10204 3.1");
+  }
+
+  return unknown();
+}
+
+function detectDeliveryRequest(text) {
+  const match = text.match(/(\d+\s*(weeks|week|days|day))/i);
+  return match ? detected(match[1], "medium") : unknown();
+}
+
+function detectDestination(text) {
+  if (text.includes("singapore")) {
+    return detected("Singapore");
+  }
+
+  return unknown();
+}
+
+function extractSpecialNotes(emailText) {
+  if (emailText.trim()) {
+    return {
+      value: emailText.trim().slice(0, 200),
+      confidence: "medium",
+      sourceReference: "Pasted email text",
+    };
+  }
+
+  return unknown();
+}
+
+function buildAiSummary(extractedFields, missingInfo) {
+  return {
+    whatCustomerNeeds: summarizeField(extractedFields, "Product Type", "Customer product need is not yet clear."),
+    straightforward: summarizeField(extractedFields, "Material / Grade", "No clear straightforward item detected yet."),
+    needsClarification:
+      missingInfo.ambiguousRequirements[0] || missingInfo.missingFields[0] || "Manual clarification still required.",
+    knowledgeBaseChecks:
+      "Check capability files, prior quote records, and compliance certificates against the extracted requirements.",
+    recommendedNextStep:
+      "Review the parsed case table, confirm unclear fields, and then move the case into knowledge review.",
+    mainRisks: [
+      ...missingInfo.missingFields,
+      ...missingInfo.ambiguousRequirements,
+    ].slice(0, 3),
+    currentStatus: deriveCaseStatus(missingInfo),
+  };
+}
+
+function buildSuggestedQuestions(missingInfo) {
+  const questions = [];
+
+  if (missingInfo.ambiguousRequirements.some((item) => item.toLowerCase().includes("nace"))) {
+    questions.push("Please confirm whether NACE compliance is required and to which exact standard.");
+  }
+
+  if (
+    missingInfo.ambiguousRequirements.some((item) => item.toLowerCase().includes("witness"))
+  ) {
+    questions.push("Please confirm whether third-party witness inspection is required.");
+  }
+
+  if (missingInfo.missingFields.some((item) => item.toLowerCase().includes("destination"))) {
+    questions.push("Please confirm the final delivery destination.");
+  }
+
+  if (missingInfo.missingFields.some((item) => item.toLowerCase().includes("delivery"))) {
+    questions.push("Please confirm the requested delivery timing.");
+  }
+
+  questions.push("Please confirm whether partial shipment is acceptable.");
+
+  return questions.slice(0, 8);
+}
+
+function detected(value, confidence = "high") {
+  return {
+    value,
+    confidence,
+    sourceReference: "Parsed from uploaded intake",
+  };
+}
+
+function unknown() {
+  return {
+    value: "Not clearly stated",
+    confidence: "low",
+    sourceReference: "No clear evidence found in uploaded intake",
+  };
+}
+
+function buildHeuristicAnalysis({ emailText, parsedFiles }) {
+  const combinedText = [emailText, ...parsedFiles.map((file) => file.extractedText)]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+
+  const customerName = extractCustomerName(emailText) || "Unspecified Customer";
+  const productType = detectProductType(combinedText);
+  const material = detectMaterial(combinedText);
+  const dimensions = detectDimensions(combinedText);
+  const outsideDimension = detectOutsideDimension(combinedText);
+  const wallThickness = detectWallThickness(combinedText);
+  const schedule = detectSchedule(combinedText);
+  const lengthPerPiece = detectLengthPerPiece(combinedText);
+  const quantity = detectQuantity(combinedText);
+  const requestedStandards = detectRequestedStandards(combinedText);
+  const inspectionRequirements = detectInspectionRequirements(combinedText);
+  const documentationRequirements = detectDocumentationRequirements(combinedText);
+  const deliveryRequest = detectDeliveryRequest(combinedText);
+  const destination = detectDestination(combinedText);
+  const specialNotes = extractSpecialNotes(emailText);
+  const heuristicFields = [
+    createField("Product Type", productType.value, productType.confidence, productType.sourceReference),
+    createField("Material / Grade", material.value, material.confidence, material.sourceReference),
+    createField("Dimensions", dimensions.value, dimensions.confidence, dimensions.sourceReference),
+    createField("Quantity", quantity.value, quantity.confidence, quantity.sourceReference),
+    createField("Requested Standards", requestedStandards.value, requestedStandards.confidence, requestedStandards.sourceReference),
+    createField("Inspection Requirements", inspectionRequirements.value, inspectionRequirements.confidence, inspectionRequirements.sourceReference),
+    createField("Documentation Requirements", documentationRequirements.value, documentationRequirements.confidence, documentationRequirements.sourceReference),
+    createField("Delivery Request", deliveryRequest.value, deliveryRequest.confidence, deliveryRequest.sourceReference),
+    createField("Destination", destination.value, destination.confidence, destination.sourceReference),
+    createField("Special Notes", specialNotes.value, specialNotes.confidence, specialNotes.sourceReference),
+  ];
+  const missingInfo = deriveMissingInfo(heuristicFields);
+
+  return {
+    customer_name: customerName,
+    project_name:
+      destination.value !== "Not clearly stated" ? `${destination.value} RFQ Review` : "Customer RFQ Review",
+    product_items: [
+      {
+        label: "Product 1",
+        product_type: productType.value,
+        material_grade: material.value,
+        dimensions: dimensions.value,
+        outside_dimension: outsideDimension.value,
+        wall_thickness: wallThickness.value,
+        schedule: schedule.value,
+        length_per_piece: lengthPerPiece.value,
+        quantity: quantity.value,
+      },
+    ],
+    product_type: productType.value,
+    material_grade: material.value,
+    dimensions: dimensions.value,
+    outside_dimension: outsideDimension.value,
+    wall_thickness: wallThickness.value,
+    schedule: schedule.value,
+    length_per_piece: lengthPerPiece.value,
+    quantity: quantity.value,
+    requested_standards: requestedStandards.value,
+    inspection_requirements: inspectionRequirements.value,
+    documentation_requirements: documentationRequirements.value,
+    delivery_request: deliveryRequest.value,
+    destination: destination.value,
+    special_notes: specialNotes.value,
+    missing_fields: missingInfo.missingFields,
+    ambiguous_requirements: missingInfo.ambiguousRequirements,
+    low_confidence_items: missingInfo.lowConfidenceItems,
+    suggested_questions: buildSuggestedQuestions(missingInfo),
+    ai_summary: {
+      what_customer_needs: summarizeField(heuristicFields, "Product Type", "Customer product need is not yet clear."),
+      straightforward: summarizeField(heuristicFields, "Material / Grade", "No clear straightforward item detected yet."),
+      needs_clarification:
+        missingInfo.ambiguousRequirements[0] || missingInfo.missingFields[0] || "Manual clarification still required.",
+      knowledge_base_checks:
+        "Check capability files, prior quote records, and compliance certificates against the extracted requirements.",
+      recommended_next_step:
+        "Review the parsed case table, confirm unclear fields, and then move the case into knowledge review.",
+      main_risks: [...missingInfo.missingFields, ...missingInfo.ambiguousRequirements].slice(0, 3),
+    },
+    current_status: deriveCaseStatus(missingInfo),
+  };
+}
+
+function summarizeField(fields, fieldName, fallback) {
+  return fields.find((field) => field.fieldName === fieldName)?.value || fallback;
+}
+
+function inferType(fileName) {
+  return path.extname(fileName).replace(".", "").toUpperCase() || "FILE";
+}
+
+function createCaseId(now) {
+  const stamp = now.toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+  return `QC-${stamp}`;
+}
+
+function buildTitle(customerName, productType) {
+  return `${customerName} ${productType}`.trim();
+}

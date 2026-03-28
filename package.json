@@ -1,0 +1,12 @@
+{
+  "name": "quotelligence",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Project workspace for PRD-driven execution and implementation.",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "test": "node --check server.js && node --check server/env.js && node --check server/file-text-extractor.js && node --check server/openai-client.js && node --check server/intake-service.js && node --check server/knowledge-service.js && node --check server/quote-decision-engine.js && node --check server/quote-service.js && node --check server/store.js && node --check server/workflow-engine.js && node --check src/api.js && node --check src/main.js && node --check src/app.js && node --check src/ui.js && node --test tests/*.test.js"
+  }
+}
