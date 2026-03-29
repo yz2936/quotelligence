@@ -227,8 +227,11 @@ function shouldUseDatabase() {
 
 function getPool() {
   if (!pool) {
+    const connectionString = getDatabaseUrl();
     pool = new Pool({
-      connectionString: getDatabaseUrl(),
+      connectionString: shouldUseSecureDatabaseConnection()
+        ? stripConnectionStringSslParams(connectionString)
+        : connectionString,
       ssl: shouldUseSecureDatabaseConnection() ? { rejectUnauthorized: false } : undefined,
     });
   }
@@ -299,6 +302,19 @@ function getDatabaseUrl() {
       process.env.STORAGE_POSTGRES_URL_NON_POOLING ||
       ""
   ).trim();
+}
+
+function stripConnectionStringSslParams(connectionString) {
+  try {
+    const url = new URL(connectionString);
+    url.searchParams.delete("sslmode");
+    url.searchParams.delete("sslcert");
+    url.searchParams.delete("sslkey");
+    url.searchParams.delete("sslrootcert");
+    return url.toString();
+  } catch {
+    return connectionString;
+  }
 }
 
 function hydrateJsonRecord(value) {
