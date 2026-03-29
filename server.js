@@ -32,7 +32,7 @@ export async function handleRequest(req, res) {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
     if (url.pathname === "/api/intake" && req.method === "POST") {
-      const formData = await toRequest(req, url).formData();
+      const formData = await (await toRequest(req, url)).formData();
       const emailText = String(formData.get("email_text") || "");
       const language = String(formData.get("language") || "en");
       const files = formData
@@ -90,7 +90,7 @@ export async function handleRequest(req, res) {
     }
 
     if (url.pathname === "/api/knowledge/upload" && req.method === "POST") {
-      const formData = await toRequest(req, url).formData();
+      const formData = await (await toRequest(req, url)).formData();
       const language = String(formData.get("language") || "en");
       const files = formData
         .getAll("knowledge_files")
@@ -571,12 +571,16 @@ function fieldValue(caseRecord, fieldName) {
   return caseRecord.extractedFields.find((field) => field.fieldName === fieldName)?.value || "";
 }
 
-function toRequest(req, url) {
-  return new Request(url, {
+async function toRequest(req, url) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(chunk);
+  }
+  const body = Buffer.concat(chunks);
+  return new Request(url.toString(), {
     method: req.method,
     headers: req.headers,
-    body: req,
-    duplex: "half",
+    body,
   });
 }
 

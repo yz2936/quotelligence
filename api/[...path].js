@@ -1,5 +1,13 @@
 import { handleRequest } from "../server.js";
 
+// Disable Vercel's default body parser so the raw body stream is available
+// for multipart form data and manual JSON parsing in server.js
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
 export default async function handler(req, res) {
   try {
     await handleRequest(req, res);
