@@ -165,6 +165,101 @@ test("normalizeStoredQuoteEstimate recalculates totals from editable pricing fie
   assert.equal(normalized.flagCounts.red, 1);
 });
 
+test("buildQuoteEstimate adds line-level decision pricing guidance from workbook recommendations", async () => {
+  const quoteEstimate = await buildQuoteEstimate({
+    caseRecord: {
+      caseId: "QC-300",
+      customerName: "Gulf Coast Process Systems",
+      extractedFields: [
+        { fieldName: "Delivery Request", value: "4 weeks" },
+      ],
+      productItems: [
+        {
+          productId: "product-1",
+          label: "316L Pipe",
+          productType: "Seamless Pipe",
+          materialGrade: "ASTM A312 TP316L",
+          quantity: "8 tons",
+        },
+        {
+          productId: "product-2",
+          label: "316L Fittings",
+          productType: "Seamless Pipe",
+          materialGrade: "ASTM A312 TP316L",
+          quantity: "2 tons",
+        },
+      ],
+    },
+    knowledgeFiles: [
+      {
+        knowledgeFileId: "kf-1",
+        name: "historical_quote_kb_sample.xlsx",
+        category: "Quote Decision Workbook",
+        decisionWorkbook: {
+          tables: {
+            historical_orders: [
+              {
+                order_id: "ORD-001",
+                product_category: "Seamless Pipe",
+                manufacturing_route: "Seamless",
+                material_grade: "ASTM A312 TP316L",
+                grade_family: "316",
+                total_weight_tons: 8,
+                quoted_price_usd_per_ton: 1320,
+                actual_lead_time_days: 34,
+                gross_margin_pct: 18,
+                order_outcome: "Won",
+                primary_workcenter: "WC-02",
+                relationship_level: "Key",
+                supplier_id: "MILL-A",
+              },
+              {
+                order_id: "ORD-002",
+                product_category: "Seamless Pipe",
+                manufacturing_route: "Seamless",
+                material_grade: "ASTM A312 TP316L",
+                grade_family: "316",
+                total_weight_tons: 9,
+                quoted_price_usd_per_ton: 1360,
+                actual_lead_time_days: 38,
+                gross_margin_pct: 17,
+                order_outcome: "Won",
+                primary_workcenter: "WC-02",
+                relationship_level: "Key",
+                supplier_id: "MILL-A",
+              },
+            ],
+            ongoing_deals: [
+              { primary_workcenter: "WC-02", booked_capacity_pct: 46, booked_hours: 190 },
+            ],
+            suppliers: [
+              { supplier_id: "MILL-A", avg_actual_lead_days: 36, reliability_score_100: 74 },
+            ],
+            workcenters: [],
+            customers: [
+              {
+                customer_id: "GCPS-01",
+                customer_name: "Gulf Coast Process Systems",
+                customer_region: "Americas",
+                customer_type: "Existing EPC",
+                relationship_level: "Key",
+              },
+            ],
+            data_dictionary: [],
+          },
+        },
+      },
+    ],
+    language: "en",
+  });
+
+  assert.match(quoteEstimate.summary, /Quote the full package at USD/i);
+  assert.equal(quoteEstimate.lineItems.length, 2);
+  assert.ok(quoteEstimate.lineItems[0].decisionGuidance);
+  assert.ok(quoteEstimate.lineItems[0].decisionGuidance.recommendedUnitPriceLow > 0);
+  assert.ok(quoteEstimate.decisionRecommendation.lineRecommendations.length, 2);
+});
+
 test("summarizeKnowledgeFile falls back cleanly when text is missing", async () => {
   const result = await summarizeKnowledgeFile({
     knowledgeFile: {

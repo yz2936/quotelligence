@@ -919,6 +919,7 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
                     <td>
                       <input class="text-input text-input--table text-input--flag-${String(item.reviewFlag || "").toLowerCase()}" type="number" step="0.01" value="${escapeAttribute(item.finalPrice ?? "")}" data-quote-line-final-price data-line-id="${item.lineId}" />
                       <p class="case-table__subtext">${item.humanReviewed ? t(language, "reviewedByHuman") : t(language, "pendingHumanReview")}</p>
+                      ${item.decisionGuidance ? `<p class="case-table__subtext">${escapeHtml(formatDecisionLineGuidance(item.decisionGuidance, quoteEstimate.currency, language))}</p>` : ""}
                       <div class="case-table__actions quote-line-actions">
                         <button class="button button--secondary button--small" data-action="toggle-line-override" data-line-id="${item.lineId}">
                           ${item.manualOverride ? t(language, "removeOverride") : t(language, "overrideLine")}
@@ -1000,6 +1001,7 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
 
 function renderDecisionPanel(decisionRecommendation, currency, language) {
   const recommendation = decisionRecommendation.recommendation || {};
+  const lineRecommendations = decisionRecommendation.lineRecommendations || [];
 
   return `
     <article class="summary-card">
@@ -1014,8 +1016,9 @@ function renderDecisionPanel(decisionRecommendation, currency, language) {
           <p>${escapeHtml(recommendation.recommendedStrategy || t(language, "noneLabel"))}</p>
         </div>
         <div>
-          <p class="eyebrow">${t(language, "priceRangeTitle")}</p>
-          <p>${formatMoneyValue(currency, recommendation.recommendedPricePerTonLow)} - ${formatMoneyValue(currency, recommendation.recommendedPricePerTonHigh)} / ton</p>
+          <p class="eyebrow">${language === "zh" ? "整单报价建议" : "Recommended Quote Total"}</p>
+          <p>${formatMoneyRange(currency, recommendation.recommendedTotalPriceLow, recommendation.recommendedTotalPriceHigh)}</p>
+          <p class="muted">${language === "zh" ? "各产品明细的目标价格见下方。" : "See the line-level target prices below for each item."}</p>
         </div>
         <div>
           <p class="eyebrow">${t(language, "leadTimeRangeTitle")}</p>
@@ -1030,6 +1033,28 @@ function renderDecisionPanel(decisionRecommendation, currency, language) {
           <p>${escapeHtml(`${Math.round((recommendation.winProbabilityEstimate || 0) * 100)}%`)}</p>
         </div>
       </div>
+      ${
+        lineRecommendations.length
+          ? `
+            <div>
+              <p class="eyebrow">${language === "zh" ? "各行定价建议" : "Line Pricing Targets"}</p>
+              <div class="decision-line-grid">
+                ${lineRecommendations
+                  .map(
+                    (item) => `
+                      <div class="decision-line-card">
+                        <strong>${escapeHtml(item.productLabel || t(language, "product"))}</strong>
+                        <p>${escapeHtml(formatDecisionLineGuidance(item, currency, language))}</p>
+                        <p class="muted">${escapeHtml(item.basis || t(language, "noneLabel"))}</p>
+                      </div>
+                    `
+                  )
+                  .join("")}
+              </div>
+            </div>
+          `
+          : ""
+      }
       <div class="content-grid">
         <div>
           <p class="eyebrow">${t(language, "mainDriversTitle")}</p>
@@ -1057,8 +1082,8 @@ function renderDecisionRecommendation(decisionRecommendation, currency, language
       <p>${escapeHtml(recommendation.recommendedStrategy || t(language, "noneLabel"))}</p>
     </div>
     <div>
-      <p class="eyebrow">${t(language, "priceRangeTitle")}</p>
-      <p>${formatMoneyValue(currency, recommendation.recommendedPricePerTonLow)} - ${formatMoneyValue(currency, recommendation.recommendedPricePerTonHigh)} / ton</p>
+      <p class="eyebrow">${language === "zh" ? "整单报价建议" : "Recommended Quote Total"}</p>
+      <p>${formatMoneyRange(currency, recommendation.recommendedTotalPriceLow, recommendation.recommendedTotalPriceHigh)}</p>
     </div>
     <div>
       <p class="eyebrow">${t(language, "leadTimeRangeTitle")}</p>
@@ -1234,6 +1259,10 @@ function formatMoneyValue(currency, value) {
   return `${escapeHtml(currency || "USD")} ${numeric.toFixed(2)}`;
 }
 
+function formatMoneyRange(currency, low, high) {
+  return `${formatMoneyValue(currency, low)} - ${formatMoneyValue(currency, high)}`;
+}
+
 function formatQuantityBasis(item, language) {
   const quantityValue = Number(item.quantityValue || 0);
   const quantityUnit = item.quantityUnit || (language === "zh" ? "单位" : "unit");
@@ -1259,6 +1288,31 @@ function formatLineTotalBasis(item, currency, language) {
   return language === "zh"
     ? `${quantityValue} ${quantityUnit} × ${unitPrice}`
     : `${quantityValue} ${quantityUnit} × ${unitPrice}`;
+}
+
+function formatDecisionLineGuidance(guidance, currency, language) {
+  const unit = guidance.quantityUnit || (language === "zh" ? "单位" : "unit");
+  const hasUnitRange = Number(guidance.recommendedUnitPriceLow || 0) > 0 && Number(guidance.recommendedUnitPriceHigh || 0) > 0;
+  const hasLineTotal = Number(guidance.recommendedLineTotalLow || 0) > 0 && Number(guidance.recommendedLineTotalHigh || 0) > 0;
+  const parts = [];
+
+  if (hasUnitRange) {
+    parts.push(
+      language === "zh"
+        ? `建议单价 ${formatMoneyRange(currency, guidance.recommendedUnitPriceLow, guidance.recommendedUnitPriceHigh)} / ${unit}`
+        : `Target unit price ${formatMoneyRange(currency, guidance.recommendedUnitPriceLow, guidance.recommendedUnitPriceHigh)} / ${unit}`
+    );
+  }
+
+  if (hasLineTotal) {
+    parts.push(
+      language === "zh"
+        ? `建议行总价 ${formatMoneyRange(currency, guidance.recommendedLineTotalLow, guidance.recommendedLineTotalHigh)}`
+        : `Target line total ${formatMoneyRange(currency, guidance.recommendedLineTotalLow, guidance.recommendedLineTotalHigh)}`
+    );
+  }
+
+  return parts.join(language === "zh" ? "；" : " | ");
 }
 
 function renderOutcomesPage(state) {

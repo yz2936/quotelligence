@@ -1659,6 +1659,25 @@ td.case-table__actions .button { display: inline-flex; }
 .quote-line-actions {
   margin-top: 8px;
 }
+
+.decision-line-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 18px 0 6px;
+}
+
+.decision-line-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel-secondary);
+  box-shadow: var(--shadow-xs);
+}
+
+.decision-line-card p {
+  margin: 6px 0 0;
+}
 .outcome-card {
   display: grid;
   gap: 14px;

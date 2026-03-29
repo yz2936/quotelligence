@@ -559,6 +559,7 @@ function recalculateQuoteEstimate(quoteEstimate, caseRecord, language) {
       reviewReason: reviewState.reviewReason,
       manualOverride: reviewState.manualOverride,
       humanReviewed: Boolean(existing.humanReviewed),
+      decisionGuidance: existing.decisionGuidance || null,
     };
   });
 
@@ -840,6 +841,10 @@ function formatMoney(currency, amount) {
   return `${normalizeCurrency(currency)} ${roundCurrency(amount).toFixed(2)}`;
 }
 
+function formatMoneyRange(currency, low, high) {
+  return `${formatMoney(currency, low)} - ${formatMoney(currency, high)}`;
+}
+
 async function buildKnowledgeMetadata({ name, type, extractedText, decisionWorkbook, textReadable, language }) {
   if (decisionWorkbook) {
     return {
@@ -980,13 +985,29 @@ function applyDecisionRecommendationToQuoteEstimate({ quoteEstimate, decisionRec
     return quoteEstimate;
   }
 
-  const recommendation = decisionRecommendation.recommendation;
+  const recommendation = decisionRecommendation.recommendation || {};
   const leadRange = `${recommendation.recommendedLeadTimeDaysLow}-${recommendation.recommendedLeadTimeDaysHigh} ${
     language === "zh" ? "天" : "days"
   }`;
+  const lineRecommendations = deriveDecisionLineRecommendations({
+    lineItems: quoteEstimate.lineItems || [],
+    recommendation,
+    currency: quoteEstimate.currency || "USD",
+    language,
+  });
+  const lineGuidanceById = new Map(lineRecommendations.map((item) => [item.lineId, item]));
+  const improvedSummary = buildDecisionRecommendationSummary({
+    decisionRecommendation,
+    currency: quoteEstimate.currency || "USD",
+    language,
+  });
 
   return {
     ...quoteEstimate,
+    lineItems: (quoteEstimate.lineItems || []).map((item) => ({
+      ...item,
+      decisionGuidance: lineGuidanceById.get(item.lineId) || item.decisionGuidance || null,
+    })),
     pricingStatus: quoteEstimate.pricingStatus || explain(language, "Decision recommendation ready"),
     terms: {
       ...(quoteEstimate.terms || {}),
@@ -1004,10 +1025,86 @@ function applyDecisionRecommendationToQuoteEstimate({ quoteEstimate, decisionRec
       explain(language, "Review the decision recommendation and confirm pricing strategy before issue."),
     summary:
       quoteEstimate.summary && !/could not yet be grounded|不足以支撑/.test(quoteEstimate.summary)
-        ? `${quoteEstimate.summary} ${decisionRecommendation.summary}`
-        : decisionRecommendation.summary,
-    decisionRecommendation,
+        ? `${quoteEstimate.summary} ${improvedSummary}`
+        : improvedSummary,
+    decisionRecommendation: {
+      ...decisionRecommendation,
+      summary: improvedSummary,
+      lineRecommendations,
+    },
   };
+}
+
+function deriveDecisionLineRecommendations({ lineItems, recommendation, currency, language }) {
+  const normalizedLineItems = (lineItems || []).map((item) => ({
+    ...item,
+    quantityValue: Number(item.quantityValue || 0),
+    lineTotal: Number(item.lineTotal || 0),
+  }));
+
+  if (!normalizedLineItems.length) {
+    return [];
+  }
+
+  const pricedSubtotal = normalizedLineItems.reduce((sum, item) => sum + (item.lineTotal > 0 ? item.lineTotal : 0), 0);
+  const quantitySubtotal = normalizedLineItems.reduce((sum, item) => sum + (item.quantityValue > 0 ? item.quantityValue : 0), 0);
+  const totalLow = Number(recommendation.recommendedTotalPriceLow || 0);
+  const totalHigh = Number(recommendation.recommendedTotalPriceHigh || 0);
+
+  return normalizedLineItems.map((item, index) => {
+    const share =
+      pricedSubtotal > 0
+        ? item.lineTotal / pricedSubtotal
+        : quantitySubtotal > 0
+          ? item.quantityValue / quantitySubtotal
+          : 1 / normalizedLineItems.length;
+    const recommendedLineTotalLow = totalLow > 0 ? roundCurrency(totalLow * share) : 0;
+    const recommendedLineTotalHigh = totalHigh > 0 ? roundCurrency(totalHigh * share) : 0;
+    const quantityValue = item.quantityValue > 0 ? item.quantityValue : 0;
+    const recommendedUnitPriceLow =
+      recommendedLineTotalLow > 0 && quantityValue > 0 ? roundCurrency(recommendedLineTotalLow / quantityValue) : 0;
+    const recommendedUnitPriceHigh =
+      recommendedLineTotalHigh > 0 && quantityValue > 0 ? roundCurrency(recommendedLineTotalHigh / quantityValue) : 0;
+
+    return {
+      lineId: item.lineId || `line-${index + 1}`,
+      productLabel: item.productLabel || `Product ${index + 1}`,
+      quantityUnit: item.quantityUnit || (language === "zh" ? "单位" : "unit"),
+      recommendedUnitPriceLow,
+      recommendedUnitPriceHigh,
+      recommendedLineTotalLow,
+      recommendedLineTotalHigh,
+      basis:
+        pricedSubtotal > 0
+          ? explain(language, "Allocated from the current draft price mix across all quote lines.")
+          : quantitySubtotal > 0
+            ? explain(language, "Allocated by quantity because no priced line mix was available yet.")
+            : explain(language, "Allocated evenly because quantity and draft pricing were both incomplete."),
+      currency,
+    };
+  });
+}
+
+function buildDecisionRecommendationSummary({ decisionRecommendation, currency, language }) {
+  const recommendation = decisionRecommendation.recommendation || {};
+  const strategy = recommendation.recommendedStrategy || (language === "zh" ? "待确认" : "to be confirmed");
+  const leadText = `${recommendation.recommendedLeadTimeDaysLow || 0}-${recommendation.recommendedLeadTimeDaysHigh || 0} ${
+    language === "zh" ? "天" : "days"
+  }`;
+  const riskLevel = recommendation.riskLevel || (language === "zh" ? "中" : "Medium");
+  const riskScore = recommendation.riskScore0To100 || 0;
+  const totalLow = Number(recommendation.recommendedTotalPriceLow || 0);
+  const totalHigh = Number(recommendation.recommendedTotalPriceHigh || 0);
+
+  if (totalLow > 0 && totalHigh > 0) {
+    return language === "zh"
+      ? `建议策略 ${strategy}。整单报价建议为 ${formatMoneyRange(currency, totalLow, totalHigh)}，交期 ${leadText}，风险 ${riskLevel}（${riskScore}/100）。请按下方各行建议价格进行复核。`
+      : `Recommended strategy ${strategy}. Quote the full package at ${formatMoneyRange(currency, totalLow, totalHigh)}, lead time ${leadText}, risk ${riskLevel} (${riskScore}/100). Review the line-level target prices below before sending.`;
+  }
+
+  return language === "zh"
+    ? `建议策略 ${strategy}。交期 ${leadText}，风险 ${riskLevel}（${riskScore}/100）。请按下方各行建议价格进行复核。`
+    : `Recommended strategy ${strategy}. Lead time ${leadText}, risk ${riskLevel} (${riskScore}/100). Review the line-level target prices below before sending.`;
 }
 
 function summarizeComparison(grouped, language) {
