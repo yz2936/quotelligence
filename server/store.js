@@ -10,6 +10,24 @@ let storeFilePath = process.env.QUOTELLIGENCE_STORE_FILE || path.join(os.tmpdir(
 let pool = null;
 let schemaPromise = null;
 
+export async function getStoreHealth() {
+  if (shouldUseDatabase()) {
+    try {
+      await ensureDatabaseSchema();
+      await getPool().query("SELECT 1");
+      return { mode: "database", healthy: true };
+    } catch (error) {
+      return {
+        mode: "database",
+        healthy: false,
+        details: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  return { mode: "file", healthy: true };
+}
+
 export async function listCases() {
   if (shouldUseDatabase()) {
     await ensureDatabaseSchema();
@@ -83,6 +101,34 @@ export async function saveCase(caseRecord) {
 
   writeFileStore(store);
   return caseRecord;
+}
+
+export async function deleteCase(caseId) {
+  if (shouldUseDatabase()) {
+    await ensureDatabaseSchema();
+    const result = await getPool().query(
+      `
+        DELETE FROM cases
+        WHERE case_id = $1
+      `,
+      [caseId]
+    );
+
+    return result.rowCount > 0;
+  }
+
+  const store = loadFileStore();
+  const nextCases = store.cases.filter((entry) => entry.caseId !== caseId);
+
+  if (nextCases.length === store.cases.length) {
+    return false;
+  }
+
+  writeFileStore({
+    ...store,
+    cases: nextCases,
+  });
+  return true;
 }
 
 export async function listKnowledgeFiles() {

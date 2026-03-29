@@ -45,6 +45,14 @@ export async function updateCase(caseId, payload) {
   return handleJson(response);
 }
 
+export async function deleteCase(caseId) {
+  const response = await apiFetch(`/api/cases/${encodeURIComponent(caseId)}`, {
+    method: "DELETE",
+  });
+
+  return handleJson(response);
+}
+
 export async function submitCheckpointDecision(caseId, checkpointId, payload) {
   const response = await apiFetch(
     `/api/cases/${encodeURIComponent(caseId)}/checkpoints/${encodeURIComponent(checkpointId)}/decision`,

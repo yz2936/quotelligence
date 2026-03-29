@@ -8,7 +8,7 @@ import { buildCaseFromSubmission, deriveCaseStatus, deriveMissingInfo, getAllowe
 import { answerWorkspaceQuestion } from "./server/openai-client.js";
 import { buildKnowledgeComparison, buildKnowledgeFilesFromUpload, deriveKnowledgeStatus, getKnowledgeCategories, normalizeStoredQuoteEstimate, summarizeKnowledgeFile } from "./server/knowledge-service.js";
 import { buildQuoteDraft, buildQuoteEmail } from "./server/quote-service.js";
-import { getCase, getKnowledgeFile, getStoreMode, listCases, listKnowledgeFiles, saveCase, saveKnowledgeFile } from "./server/store.js";
+import { deleteCase, getCase, getKnowledgeFile, getStoreHealth, getStoreMode, listCases, listKnowledgeFiles, saveCase, saveKnowledgeFile } from "./server/store.js";
 import { authenticateRequest, getPublicSupabaseConfig } from "./server/supabase-auth.js";
 import { applyCheckpointDecision, syncCaseWorkflow } from "./server/workflow-engine.js";
 
@@ -34,12 +34,16 @@ export async function handleRequest(req, res) {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
     if (url.pathname === "/api/system/status" && req.method === "GET") {
+      const storeHealth = await getStoreHealth();
+
       return sendJson(res, 200, {
         system: {
           backendAvailable: true,
           aiConfigured: Boolean(String(process.env.OPENAI_API_KEY || "").trim()),
           model: "gpt-5.2",
           storageMode: getStoreMode(),
+          storageHealthy: storeHealth.healthy,
+          storageDetails: storeHealth.details || "",
           supabase: getPublicSupabaseConfig(),
         },
       });
@@ -208,6 +212,19 @@ export async function handleRequest(req, res) {
 
       await saveCase(updated);
       return sendJson(res, 200, { case: updated });
+    }
+
+    if (url.pathname.startsWith("/api/cases/") && req.method === "DELETE") {
+      const caseId = decodeURIComponent(url.pathname.split("/").pop());
+      const deleted = await deleteCase(caseId);
+
+      if (!deleted) {
+        return sendJson(res, 404, { error: "Case not found" });
+      }
+
+      return sendJson(res, 200, {
+        deletedCaseId: caseId,
+      });
     }
 
     if (req.method === "POST") {

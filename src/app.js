@@ -89,6 +89,7 @@ export function renderApp(root, state, currentHash) {
             </button>
           </div>
         </header>
+        ${state.system.storageHealthy === false ? `<div class="error-banner">${t(language, "storageIssue")}: ${escapeHtml(state.system.storageDetails || state.system.storageMode || "unknown")}</div>` : ""}
         ${state.error ? `<div class="error-banner">${state.error}</div>` : ""}
         <section class="screen-content ${state.analyst.open ? "screen-content--with-analyst" : ""} ${state.ui?.animateRouteChange ? "screen-content--animated" : ""}">
           ${screen.body}
@@ -348,6 +349,9 @@ function renderCaseTable(state) {
                   <td class="case-table__actions">
                     <button class="button button--small" data-action="open-case" data-case-id="${entry.caseId}">
                       ${t(language, "caseDetail")}
+                    </button>
+                    <button class="button button--secondary button--small" data-action="delete-case" data-case-id="${entry.caseId}">
+                      ${t(language, "deleteCase")}
                     </button>
                   </td>
                 </tr>

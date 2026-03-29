@@ -6,8 +6,10 @@ import test from "node:test";
 
 import {
   __resetStoreForTests,
+  deleteCase,
   getCase,
   getKnowledgeFile,
+  getStoreHealth,
   listCases,
   listKnowledgeFiles,
   saveCase,
@@ -37,4 +39,23 @@ test("store persists cases and knowledge files to disk-backed state", async () =
   const persisted = JSON.parse(fs.readFileSync(storePath, "utf8"));
   assert.equal(persisted.cases.length, 1);
   assert.equal(persisted.knowledgeFiles.length, 1);
+});
+
+test("store deletes cases and reports healthy file storage", async () => {
+  const storePath = path.join(os.tmpdir(), `quotelligence-store-test-${Date.now()}-delete.json`);
+  __resetStoreForTests(storePath);
+
+  await saveCase({
+    caseId: "QC-200",
+    createdAt: "2026-03-29",
+    customerName: "Delete Me",
+  });
+
+  assert.equal(await deleteCase("QC-200"), true);
+  assert.equal(await deleteCase("QC-404"), false);
+  assert.equal(await getCase("QC-200"), null);
+
+  const health = await getStoreHealth();
+  assert.equal(health.mode, "file");
+  assert.equal(health.healthy, true);
 });

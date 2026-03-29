@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import test from "node:test";
 
 import { handleRequest } from "../server.js";
+import { __resetStoreForTests, saveCase } from "../server/store.js";
 
 test("system status route returns JSON", async () => {
   const response = await invokeRoute({
@@ -41,6 +42,24 @@ test("intake route returns JSON 422 when a PDF cannot be parsed", async () => {
   assert.equal(response.statusCode, 422);
   assert.match(String(response.headers["content-type"] || ""), /application\/json/i);
   assert.equal(JSON.parse(response.body).error, "cannot parse PDF");
+});
+
+test("delete case route removes a stored case", async () => {
+  __resetStoreForTests();
+  await saveCase({
+    caseId: "QC-DELETE",
+    createdAt: "2026-03-29",
+    updatedAt: "2026-03-29",
+    customerName: "Acme",
+  });
+
+  const response = await invokeRoute({
+    method: "DELETE",
+    url: "/api/cases/QC-DELETE",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(JSON.parse(response.body).deletedCaseId, "QC-DELETE");
 });
 
 async function invokeRoute({ method, url, headers = {}, body = Buffer.alloc(0) }) {

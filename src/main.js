@@ -2,6 +2,7 @@ import { renderApp } from "./app.js";
 import {
   compareKnowledge,
   createCaseFromIntake,
+  deleteCase as deleteCaseRequest,
   fetchCase,
   fetchCases,
   fetchKnowledgeBase,
@@ -69,6 +70,8 @@ const state = {
     aiConfigured: false,
     model: "",
     storageMode: "",
+    storageHealthy: true,
+    storageDetails: "",
     supabase: {
       configured: false,
       url: "",
@@ -250,6 +253,12 @@ root.addEventListener("click", async (event) => {
     if (action === "open-case") {
       event.preventDefault();
       await openCase(target.dataset.caseId);
+      return;
+    }
+
+    if (action === "delete-case") {
+      event.preventDefault();
+      await deleteCase(target.dataset.caseId);
       return;
     }
 
@@ -588,10 +597,7 @@ async function syncRouteData() {
       const { cases, allowedStatuses } = await loadCaseSummaries();
       state.cases = cases;
       state.allowedStatuses = allowedStatuses;
-
-      if (!state.quote.selectedCaseId && state.cases.length) {
-        state.quote.selectedCaseId = state.selectedCaseId || state.cases[0].caseId;
-      }
+      reconcileSelectedCases();
 
       if (window.location.hash === "#/knowledge" || window.location.hash === "#/quote") {
         const knowledgeResponse = await fetchKnowledgeBase();
@@ -600,22 +606,31 @@ async function syncRouteData() {
       }
 
       if (window.location.hash === "#/quote" && state.quote.selectedCaseId) {
-        const caseRecord = await loadCaseDetail(state.quote.selectedCaseId);
-        state.quote.selectedCase = withProductItems(caseRecord);
-        state.quote.emailDraft = caseRecord.quoteEmailDraft || null;
+        try {
+          const caseRecord = await loadCaseDetail(state.quote.selectedCaseId);
+          state.quote.selectedCase = withProductItems(caseRecord);
+          state.quote.emailDraft = caseRecord.quoteEmailDraft || null;
+        } catch (error) {
+          if (!isCaseNotFoundError(error)) {
+            throw error;
+          }
+
+          state.quote.selectedCaseId = state.cases[0]?.caseId || null;
+          state.quote.selectedCase = null;
+          state.quote.emailDraft = null;
+
+          if (state.quote.selectedCaseId) {
+            const fallbackCase = await loadCaseDetail(state.quote.selectedCaseId);
+            state.quote.selectedCase = withProductItems(fallbackCase);
+            state.quote.emailDraft = fallbackCase.quoteEmailDraft || null;
+          }
+        }
+      } else if (window.location.hash === "#/quote") {
+        state.quote.selectedCase = null;
+        state.quote.emailDraft = null;
       }
     } finally {
       state.loadingCases = false;
-    }
-
-    if (state.selectedCaseId) {
-      const selected = state.cases.find((entry) => entry.caseId === state.selectedCaseId);
-
-      if (!selected) {
-        state.selectedCaseId = null;
-        state.selectedCase = null;
-        state.modalOpen = false;
-      }
     }
   }
 }
@@ -631,6 +646,8 @@ async function syncSystemStatus() {
       aiConfigured: false,
       model: "",
       storageMode: "",
+      storageHealthy: false,
+      storageDetails: "",
       supabase: {
         configured: false,
         url: "",
@@ -699,6 +716,7 @@ async function submitIntake() {
   };
   state.intakeDraft = { files: [], emailText: "" };
   state.selectedCaseId = response.case.caseId;
+  state.quote.selectedCaseId = response.case.caseId;
   state.selectedCase = response.case;
   state.selectedProductIndex = 0;
   state.modalOpen = true;
@@ -765,9 +783,38 @@ function syncIntakeActivityFromCase(caseRecord) {
 async function openCase(caseId) {
   const caseRecord = await loadCaseDetail(caseId);
   state.selectedCaseId = caseId;
+  state.quote.selectedCaseId = caseId;
   state.selectedCase = withProductItems(caseRecord);
   state.selectedProductIndex = 0;
   state.modalOpen = true;
+  mount();
+}
+
+async function deleteCase(caseId) {
+  if (!caseId) {
+    return;
+  }
+
+  const confirmed = globalThis.confirm?.(t(state.language, "deleteCaseConfirm"));
+
+  if (confirmed === false) {
+    return;
+  }
+
+  state.error = "";
+  await deleteCaseRequest(caseId);
+  removeCaseFromState(caseId);
+  reconcileSelectedCases();
+
+  if (window.location.hash === "#/quote" && state.quote.selectedCaseId) {
+    const nextCase = await loadCaseDetail(state.quote.selectedCaseId);
+    state.quote.selectedCase = withProductItems(nextCase);
+    state.quote.emailDraft = nextCase.quoteEmailDraft || null;
+  } else if (!state.quote.selectedCaseId) {
+    state.quote.selectedCase = null;
+    state.quote.emailDraft = null;
+  }
+
   mount();
 }
 
@@ -1362,6 +1409,47 @@ function shouldBlockProtectedRoutes() {
 
 function shouldUseBackendAuthoritativeData() {
   return state.system.backendAvailable && state.system.storageMode === "database";
+}
+
+function reconcileSelectedCases() {
+  const availableCaseIds = new Set((state.cases || []).map((entry) => entry.caseId));
+  const defaultCaseId =
+    state.selectedCaseId && availableCaseIds.has(state.selectedCaseId)
+      ? state.selectedCaseId
+      : state.cases[0]?.caseId || null;
+
+  if (!state.selectedCaseId || !availableCaseIds.has(state.selectedCaseId)) {
+    state.selectedCaseId = defaultCaseId;
+  }
+
+  if (state.selectedCase && !availableCaseIds.has(state.selectedCase.caseId)) {
+    state.selectedCase = null;
+    state.modalOpen = false;
+  }
+
+  if (!state.quote.selectedCaseId || !availableCaseIds.has(state.quote.selectedCaseId)) {
+    state.quote.selectedCaseId = defaultCaseId;
+  }
+
+  if (state.quote.selectedCase && !availableCaseIds.has(state.quote.selectedCase.caseId)) {
+    state.quote.selectedCase = null;
+    state.quote.emailDraft = null;
+  }
+}
+
+function removeCaseFromState(caseId) {
+  state.cases = state.cases.filter((entry) => entry.caseId !== caseId);
+  delete state.caseProductSelections[caseId];
+
+  if (!shouldUseBackendAuthoritativeData()) {
+    const cache = readCachedCaseMap();
+    delete cache[caseId];
+    writeCachedCaseMap(cache);
+  }
+}
+
+function isCaseNotFoundError(error) {
+  return /case not found/i.test(error instanceof Error ? error.message : String(error));
 }
 
 function syncCaseCacheFromRemote(remoteCases) {
