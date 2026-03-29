@@ -310,7 +310,7 @@ export async function handleRequest(req, res) {
       });
     }
 
-    if ((url.pathname === "/api/quote/build" || url.pathname === "/api/knowledge/quote") && req.method === "POST") {
+    if (url.pathname === "/api/quote/build" && req.method === "POST") {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
       const language = String(payload.language || "en");

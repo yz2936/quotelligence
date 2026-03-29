@@ -95,7 +95,7 @@ export function renderApp(root, state, currentHash) {
           ${screen.body}
         </section>
         ${state.analyst.open ? renderAnalystWindow(state) : ""}
-        ${state.modalOpen && state.selectedCase ? renderCaseModal(state.selectedCase, state.allowedStatuses, language) : ""}
+        ${state.modalOpen && state.selectedCase ? renderCaseModal(state.selectedCase, language) : ""}
         ${state.knowledge.previewOpen && state.knowledge.selectedFile ? renderKnowledgePreviewModal(state.knowledge.selectedFile, language) : ""}
       </main>
     </div>
@@ -364,7 +364,7 @@ function renderCaseTable(state) {
   `;
 }
 
-function renderCaseModal(caseData, allowedStatuses, language) {
+function renderCaseModal(caseData, language) {
   const productItems = caseData.productItems?.length ? caseData.productItems : [];
   return `
     <div class="modal-overlay" data-action="close-case-modal">
@@ -1143,10 +1143,6 @@ function renderQuoteEmailDraft(emailDraft, language) {
   `;
 }
 
-function renderOptionLabel(language, status) {
-  return renderStatusBadge(status, language).replace(/<[^>]+>/g, "");
-}
-
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -1156,14 +1152,6 @@ function escapeHtml(value) {
 
 function escapeAttribute(value) {
   return escapeHtml(value).replaceAll('"', "&quot;");
-}
-
-function toFieldId(fieldName) {
-  return `field-${fieldName.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}`;
-}
-
-function inferType(fileName) {
-  return fileName.split(".").pop()?.toUpperCase() || "FILE";
 }
 
 function formatMoneyValue(currency, value) {
