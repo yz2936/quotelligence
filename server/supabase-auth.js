@@ -50,7 +50,7 @@ export async function authenticateRequest(req) {
 
 function getSupabaseAdminClient() {
   const url = getPublicSupabaseUrl();
-  const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+  const serviceRoleKey = getSupabaseServiceRoleKey();
   const configKey = `${url}::${serviceRoleKey}`;
 
   if (!url || !serviceRoleKey) {
@@ -72,7 +72,13 @@ function getSupabaseAdminClient() {
 }
 
 function getPublicSupabaseUrl() {
-  return String(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+  return String(
+    process.env.SUPABASE_URL ||
+      process.env.NEXT_PUBLIC_SUPABASE_URL ||
+      process.env.STORAGE_SUPABASE_URL ||
+      process.env.NEXT_PUBLIC_STORAGE_SUPABASE_URL ||
+      ""
+  ).trim();
 }
 
 function getSupabaseAnonKey() {
@@ -85,6 +91,18 @@ function getSupabasePublicKey() {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
       process.env.SUPABASE_PUBLISHABLE_KEY ||
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.STORAGE_SUPABASE_ANON_KEY ||
+      process.env.NEXT_PUBLIC_STORAGE_SUPABASE_ANON_KEY ||
+      process.env.STORAGE_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_STORAGE_SUPABASE_PUBLISHABLE_KEY ||
+      ""
+  ).trim();
+}
+
+function getSupabaseServiceRoleKey() {
+  return String(
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.STORAGE_SUPABASE_SERVICE_ROLE_KEY ||
       ""
   ).trim();
 }

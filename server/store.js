@@ -222,13 +222,13 @@ export function __resetStoreForTests(nextFilePath) {
 }
 
 function shouldUseDatabase() {
-  return Boolean(String(process.env.DATABASE_URL || "").trim());
+  return Boolean(getDatabaseUrl());
 }
 
 function getPool() {
   if (!pool) {
     pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+      connectionString: getDatabaseUrl(),
       ssl: shouldUseSecureDatabaseConnection() ? { rejectUnauthorized: false } : undefined,
     });
   }
@@ -282,11 +282,23 @@ function shouldUseSecureDatabaseConnection() {
   }
 
   try {
-    const url = new URL(process.env.DATABASE_URL);
+    const url = new URL(getDatabaseUrl());
     return !["localhost", "127.0.0.1"].includes(url.hostname);
   } catch {
     return false;
   }
+}
+
+function getDatabaseUrl() {
+  return String(
+    process.env.DATABASE_URL ||
+      process.env.POSTGRES_URL ||
+      process.env.POSTGRES_PRISMA_URL ||
+      process.env.STORAGE_POSTGRES_URL ||
+      process.env.STORAGE_POSTGRES_PRISMA_URL ||
+      process.env.STORAGE_POSTGRES_URL_NON_POOLING ||
+      ""
+  ).trim();
 }
 
 function hydrateJsonRecord(value) {
