@@ -170,6 +170,24 @@ test("buildCaseFromSubmission avoids injecting unrelated clarification blockers"
   );
 });
 
+test("buildCaseFromSubmission fails loudly when a PDF cannot be parsed", async () => {
+  const file = new File(
+    ["%PDF-1.6 broken content that does not contain readable extractable text"],
+    "broken-rfq.pdf",
+    { type: "application/pdf" }
+  );
+
+  await assert.rejects(
+    () =>
+      buildCaseFromSubmission({
+        files: [file],
+        emailText: "",
+        now: new Date("2026-03-24T12:34:56Z"),
+      }),
+    /cannot parse PDF/i
+  );
+});
+
 test("allowed statuses match the PRD workflow", () => {
   assert.deepEqual(getAllowedCaseStatuses(), [
     "New",

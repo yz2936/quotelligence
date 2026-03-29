@@ -10,7 +10,7 @@
  * Supports all input types: email text, PDF, Excel, Word, CSV, mixed language.
  */
 
-const MODEL = "gpt-5.4";
+const MODEL = "gpt-5.2";
 const API_URL = "https://api.openai.com/v1/responses";
 
 // ─── Core OpenAI Caller ─────────────────────────────────────────────────────

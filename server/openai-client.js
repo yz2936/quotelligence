@@ -1,4 +1,4 @@
-const MODEL = "gpt-5.4";
+const MODEL = "gpt-5.2";
 const API_URL = "https://api.openai.com/v1/responses";
 
 export async function generateCaseAnalysis({ emailText, files, language = "en" }) {

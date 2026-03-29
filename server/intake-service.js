@@ -462,6 +462,10 @@ async function normalizeUploadedFile(file) {
     buffer,
   });
 
+  if (type === "PDF" && !extractedText.trim()) {
+    throw new Error("cannot parse PDF");
+  }
+
   return {
     name,
     type,

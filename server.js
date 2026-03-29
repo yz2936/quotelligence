@@ -61,7 +61,7 @@ export async function handleRequest(req, res) {
         system: {
           backendAvailable: true,
           aiConfigured: Boolean(String(process.env.OPENAI_API_KEY || "").trim()),
-          model: "gpt-5.4",
+          model: "gpt-5.2",
         },
       });
     }
@@ -426,9 +426,17 @@ export async function handleRequest(req, res) {
 
     return sendJson(res, 404, { error: "Not found" });
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (message === "cannot parse PDF") {
+      return sendJson(res, 422, {
+        error: "cannot parse PDF",
+      });
+    }
+
     return sendJson(res, 500, {
       error: "Server error",
-      details: error instanceof Error ? error.message : String(error),
+      details: message,
     });
   }
 }
