@@ -143,7 +143,6 @@ function renderLoginPage(state) {
           type="email"
           autocomplete="email"
           value="${escapeAttribute(state.auth.email || "")}"
-          ${authConfigured ? "" : "disabled"}
         />
         <label class="form-label" for="login-password">${t(language, "loginPassword")}</label>
         <input
@@ -152,7 +151,6 @@ function renderLoginPage(state) {
           type="password"
           autocomplete="current-password"
           value="${escapeAttribute(state.auth.password || "")}"
-          ${authConfigured ? "" : "disabled"}
         />
         <div class="auth-actions">
           <button class="button button--secondary" data-action="switch-auth-mode" ${state.auth.loading ? "disabled" : ""}>
