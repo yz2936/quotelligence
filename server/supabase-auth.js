@@ -5,9 +5,9 @@ let supabaseAdminKey = "";
 
 export function getPublicSupabaseConfig() {
   return {
-    configured: Boolean(getPublicSupabaseUrl() && getSupabaseAnonKey()),
+    configured: Boolean(getPublicSupabaseUrl() && getSupabasePublicKey()),
     url: getPublicSupabaseUrl(),
-    anonKey: getSupabaseAnonKey(),
+    anonKey: getSupabasePublicKey(),
   };
 }
 
@@ -76,7 +76,17 @@ function getPublicSupabaseUrl() {
 }
 
 function getSupabaseAnonKey() {
-  return String(process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "").trim();
+  return getSupabasePublicKey();
+}
+
+function getSupabasePublicKey() {
+  return String(
+    process.env.SUPABASE_ANON_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+      ""
+  ).trim();
 }
 
 function readBearerToken(req) {

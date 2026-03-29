@@ -117,14 +117,24 @@ function renderAuthLoading(language) {
 function renderLoginPage(state) {
   const language = state.language;
   const authConfigured = Boolean(state.auth.configured);
+  const authMode = state.auth.mode === "signup" ? "signup" : "login";
+  const submitLabel =
+    authMode === "signup"
+      ? state.auth.loading
+        ? t(language, "signupWorking")
+        : t(language, "signupSubmit")
+      : state.auth.loading
+        ? t(language, "loginWorking")
+        : t(language, "loginSubmit");
 
   return `
     <div class="auth-shell">
       <div class="auth-card">
         <p class="eyebrow">${t(language, "loginEyebrow")}</p>
-        <h1>${t(language, "loginTitle")}</h1>
+        <h1>${authMode === "signup" ? t(language, "signupSubmit") : t(language, "loginTitle")}</h1>
         <p class="muted">${t(language, "loginBody")}</p>
         ${!authConfigured ? `<div class="error-banner">${t(language, "loginConfigMissing")}</div>` : ""}
+        ${state.auth.notice ? `<div class="summary-card"><p>${escapeHtml(state.auth.notice)}</p></div>` : ""}
         ${state.auth.error ? `<div class="error-banner">${escapeHtml(state.auth.error)}</div>` : ""}
         <label class="form-label" for="login-email">${t(language, "loginEmail")}</label>
         <input
@@ -145,8 +155,11 @@ function renderLoginPage(state) {
           ${authConfigured ? "" : "disabled"}
         />
         <div class="auth-actions">
-          <button class="button ${state.auth.loading || !authConfigured ? "button--disabled" : ""}" data-action="submit-login" ${state.auth.loading || !authConfigured ? "disabled" : ""}>
-            ${state.auth.loading ? t(language, "loginWorking") : t(language, "loginSubmit")}
+          <button class="button button--secondary" data-action="switch-auth-mode" ${state.auth.loading ? "disabled" : ""}>
+            ${authMode === "signup" ? t(language, "authSwitchToLogin") : t(language, "authSwitchToSignup")}
+          </button>
+          <button class="button ${state.auth.loading || !authConfigured ? "button--disabled" : ""}" data-action="${authMode === "signup" ? "submit-signup" : "submit-login"}" ${state.auth.loading || !authConfigured ? "disabled" : ""}>
+            ${submitLabel}
           </button>
         </div>
       </div>

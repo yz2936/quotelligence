@@ -16,13 +16,15 @@ Quotelligence is a browser-based RFQ intake and quote-workshop tool. It parses u
 - `DATABASE_URL`
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
+- `SUPABASE_PUBLISHABLE_KEY` as an alternative to `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `PORT` for local development only
 
 ## Auth and storage
 
 - The app now shows a standalone email/password login screen before any tool screens render.
-- Browser sign-in uses Supabase Auth with `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+- Browser sign-in uses Supabase Auth with `SUPABASE_URL` and either `SUPABASE_ANON_KEY` or `SUPABASE_PUBLISHABLE_KEY`.
+- Users can create an account directly from the login screen.
 - Backend API requests validate Supabase bearer tokens with `SUPABASE_SERVICE_ROLE_KEY` when Supabase auth is configured.
 - Case and knowledge data persist in Postgres through `DATABASE_URL`.
 
@@ -49,6 +51,7 @@ Vercel project settings must include:
 - `DATABASE_URL`
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
+- `SUPABASE_PUBLISHABLE_KEY` as an alternative to `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
 After changing any of those values, redeploy the project so both the browser config and serverless functions use the same Supabase project.

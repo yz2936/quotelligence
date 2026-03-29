@@ -23,6 +23,7 @@ import {
   getCurrentSession,
   onSupabaseAuthStateChange,
   signInWithPassword,
+  signUpWithPassword,
   signOutSession,
 } from "./supabase.js";
 
@@ -81,10 +82,12 @@ const state = {
   auth: {
     ready: false,
     configured: false,
+    mode: "login",
     loading: false,
     email: "",
     password: "",
     error: "",
+    notice: "",
     session: null,
     user: null,
   },
@@ -183,6 +186,21 @@ root.addEventListener("click", async (event) => {
     if (action === "submit-login") {
       event.preventDefault();
       await submitLogin();
+      return;
+    }
+
+    if (action === "submit-signup") {
+      event.preventDefault();
+      await submitSignup();
+      return;
+    }
+
+    if (action === "switch-auth-mode") {
+      event.preventDefault();
+      state.auth.mode = state.auth.mode === "signup" ? "login" : "signup";
+      state.auth.error = "";
+      state.auth.notice = "";
+      mount();
       return;
     }
 
@@ -664,6 +682,7 @@ async function syncSystemStatus() {
     };
     state.auth.ready = true;
     state.auth.configured = false;
+    state.auth.notice = "";
   }
 }
 
@@ -1401,6 +1420,7 @@ async function submitLogin() {
 
   state.auth.loading = true;
   state.auth.error = "";
+  state.auth.notice = "";
   mount();
 
   try {
@@ -1420,10 +1440,45 @@ async function submitLogin() {
   }
 }
 
+async function submitSignup() {
+  if (!state.auth.configured) {
+    return;
+  }
+
+  state.auth.loading = true;
+  state.auth.error = "";
+  state.auth.notice = "";
+  mount();
+
+  try {
+    const result = await signUpWithPassword({
+      email: state.auth.email.trim(),
+      password: state.auth.password,
+    });
+
+    if (result.session) {
+      applyAuthSession(result.session);
+      state.auth.password = "";
+      window.location.hash = "#/intake";
+      await syncRouteData();
+    } else {
+      state.auth.password = "";
+      state.auth.mode = "login";
+      state.auth.notice = t(state.language, "signupSuccess");
+    }
+  } catch (error) {
+    state.auth.error = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.auth.loading = false;
+    mount({ preserveView: false });
+  }
+}
+
 async function logout() {
   await signOutSession();
   clearWorkspaceState();
   state.auth.password = "";
+  state.auth.notice = "";
   window.location.hash = "#/login";
   mount({ preserveView: false });
 }
