@@ -630,6 +630,7 @@ function renderQuoteWorkspace(state) {
           description: t(language, "quoteWorkspaceDescription"),
           language,
           body: `
+            ${renderQuoteRegistryTable(state.cases, selectedCaseId, language)}
             <label class="form-label" for="quote-case-select">${t(language, "selectCaseForQuote")}</label>
             <select id="quote-case-select" class="select-input" data-quote-case-select>
               ${state.cases
@@ -640,8 +641,7 @@ function renderQuoteWorkspace(state) {
                 .join("")}
             </select>
             <div class="intake-actions">
-              <button class="button ${canRun ? "" : "button--disabled"}" data-action="run-knowledge-compare" ${canRun ? "" : "disabled"}>${state.quote.comparing ? t(language, "runningComparison") : t(language, "refreshKnowledgeSummary")}</button>
-              <button class="button button--secondary ${canRun ? "" : "button--disabled"}" data-action="generate-quote-estimate" ${canRun ? "" : "disabled"}>${state.quote.quoteLoading ? t(language, "generatingQuoteEstimate") : t(language, "generateQuoteEstimate")}</button>
+              <button class="button ${canRun ? "" : "button--disabled"}" data-action="generate-quote-estimate" ${canRun ? "" : "disabled"}>${state.quote.quoteLoading ? t(language, "generatingQuoteEstimate") : t(language, "generateQuoteEstimate")}</button>
             </div>
             ${
               selectedCase?.knowledgeComparison
@@ -670,6 +670,60 @@ function renderQuoteWorkspace(state) {
       </div>
     `,
   };
+}
+
+function renderQuoteRegistryTable(cases, selectedCaseId, language) {
+  const quoteCases = (cases || []).filter((entry) => entry.quoteEstimate || (entry.quoteHistory || []).length);
+
+  if (!quoteCases.length) {
+    return `<p class="muted">${language === "zh" ? "暂无已保存的报价记录。生成首个草稿报价后会显示在这里。" : "No saved quotes yet. Built draft quotes will appear here."}</p>`;
+  }
+
+  return `
+    <div class="table-shell">
+      <table class="case-table quote-registry-table">
+        <thead>
+          <tr>
+            <th>${t(language, "caseDetail")}</th>
+            <th>${t(language, "currentStatus")}</th>
+            <th>${t(language, "quoteStage")}</th>
+            <th>${t(language, "updatedCol")}</th>
+            <th>${t(language, "total")}</th>
+            <th>${t(language, "actions")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${quoteCases
+            .map((entry) => {
+              const quoteSummary = entry.quoteSummary || entry.quoteEstimate || {};
+              const lifecycle = entry.quoteLifecycle || {};
+              const isSelected = entry.caseId === selectedCaseId;
+
+              return `
+                <tr class="case-table__row ${isSelected ? "case-table__row--active" : ""}">
+                  <td>
+                    <strong>${escapeHtml(entry.caseId)}</strong>
+                    <p class="case-table__subtext">${escapeHtml(entry.customerName || t(language, "noneLabel"))}</p>
+                  </td>
+                  <td>${renderStatusBadge(entry.status, language)}</td>
+                  <td>${escapeHtml(formatQuoteStage(lifecycle, language))}</td>
+                  <td>${escapeHtml(String(entry.updatedAt || entry.createdAt || "").slice(0, 16).replace("T", " "))}</td>
+                  <td>${quoteSummary.total ? formatMoneyValue(quoteSummary.currency || "USD", quoteSummary.total) : "—"}</td>
+                  <td>
+                    <div class="case-table__actions">
+                      <button class="button button--small ${isSelected ? "" : "button--secondary"}" data-action="open-quote" data-case-id="${entry.caseId}">
+                        ${isSelected ? (language === "zh" ? "当前查看" : "Viewing") : t(language, "reviewQuote")}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              `;
+            })
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 function renderKnowledgeFileTable(files, language) {
@@ -856,11 +910,6 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
             <p class="eyebrow">${t(language, "reviewActionsTitle")}</p>
             <h3>${t(language, "reviewActionsDescription")}</h3>
           </div>
-          <div class="case-table__actions">
-            <button class="button button--secondary" data-action="approve-all-green">${t(language, "approveAllGreen")}</button>
-            <button class="button" data-action="approve-quote">${t(language, "approveQuoteCta")}</button>
-            <button class="button button--secondary" data-action="mark-quote-sent">${t(language, "markQuoteSent")}</button>
-          </div>
         </div>
         <div class="summary-structure">
           <div>
@@ -964,9 +1013,6 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
           <p>${t(language, "total")}: ${formatMoneyValue(quoteEstimate.currency, quoteEstimate.total)}</p>
           ${quoteLifecycle?.followUpDue ? `<p class="muted">${t(language, "followUpDueLabel")}: ${escapeHtml(String(quoteLifecycle.followUpDue).slice(0, 10))}</p>` : ""}
           <p class="muted">${t(language, "recommendedNextStep")}: ${escapeHtml(quoteEstimate.recommendedNextStep || t(language, "noneLabel"))}</p>
-          <div class="intake-actions quote-summary-actions">
-            <button class="button button--secondary" data-action="save-quote-snapshot">${t(language, "saveQuoteVersion")}</button>
-          </div>
         </article>
       </div>
       ${renderQuoteHistory(caseData, language)}
@@ -1159,8 +1205,8 @@ function renderQuoteHistory(caseData, language) {
                   <tr>
                     <th>${t(language, "updatedCol")}</th>
                     <th>${t(language, "quoteHistoryEvent")}</th>
-                    <th>${t(language, "product")}</th>
-                    <th>${t(language, "quoteHistoryCommercials")}</th>
+                    <th>${language === "zh" ? "阶段" : "Stage"}</th>
+                    <th>${language === "zh" ? "产品明细" : "Items"}</th>
                     <th>${t(language, "total")}</th>
                   </tr>
                 </thead>
@@ -1176,11 +1222,11 @@ function renderQuoteHistory(caseData, language) {
                             <strong>${escapeHtml(entry.title)}</strong>
                             <p class="case-table__subtext">${escapeHtml(entry.actor || "system")}</p>
                           </td>
+                          <td>${escapeHtml(entry.lifecycleStage || inferQuoteHistoryStage(entry, language))}</td>
                           <td>${renderQuoteHistoryProducts(entry, language)}</td>
-                          <td>${renderQuoteHistoryCommercials(entry, language)}</td>
                           <td>
                             <strong>${formatMoneyValue(entry.currency, entry.total)}</strong>
-                            <p class="case-table__subtext">${t(language, "subtotal")}: ${formatMoneyValue(entry.currency, entry.subtotal)}</p>
+                            <p class="case-table__subtext">${escapeHtml(formatQuoteHistoryCommercialsSummary(entry, language))}</p>
                           </td>
                         </tr>
                       `
@@ -1194,6 +1240,20 @@ function renderQuoteHistory(caseData, language) {
       }
     </article>
   `;
+}
+
+function inferQuoteHistoryStage(entry, language) {
+  const title = String(entry.title || "").toLowerCase();
+
+  if (title.includes("sent")) {
+    return t(language, "quoteStageSent");
+  }
+
+  if (title.includes("approved")) {
+    return t(language, "quoteStageApproved");
+  }
+
+  return t(language, "quoteStageDraft");
 }
 
 function renderQuoteHistoryProducts(entry, language) {
@@ -1224,6 +1284,16 @@ function renderQuoteHistoryCommercials(entry, language) {
   }
 
   return parts.map((part) => `<div class="quote-history-list-item">${escapeHtml(part)}</div>`).join("");
+}
+
+function formatQuoteHistoryCommercialsSummary(entry, language) {
+  const parts = [
+    entry.incoterm ? `Incoterm: ${entry.incoterm}` : "",
+    entry.terms?.paymentTerms ? `${t(language, "paymentTerms")}: ${entry.terms.paymentTerms}` : "",
+    entry.terms?.leadTime ? `${t(language, "leadTime")}: ${entry.terms.leadTime}` : "",
+  ].filter(Boolean);
+
+  return parts.join(" | ") || t(language, "noneLabel");
 }
 
 function renderQuoteEmailDraft(emailDraft, language) {

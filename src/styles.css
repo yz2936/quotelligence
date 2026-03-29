@@ -1678,6 +1678,10 @@ td.case-table__actions .button { display: inline-flex; }
 .decision-line-card p {
   margin: 6px 0 0;
 }
+
+.case-table__row--active {
+  background: color-mix(in srgb, var(--accent-muted) 40%, white);
+}
 .outcome-card {
   display: grid;
   gap: 14px;
