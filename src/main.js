@@ -20,6 +20,17 @@ import { confidenceLabel, t } from "./i18n.js";
 
 const root = document.querySelector("#app");
 const storedLanguage = globalThis.localStorage?.getItem("quotecase_language");
+const CASE_CACHE_KEY = "quotelligence_case_cache_v1";
+const DEFAULT_ALLOWED_STATUSES = [
+  "New",
+  "Parsing",
+  "Ready for Review",
+  "Needs Clarification",
+  "Under Knowledge Review",
+  "Partially Supported",
+  "Ready to Quote",
+  "Escalate Internally",
+];
 
 const state = {
   language: storedLanguage === "zh" ? "zh" : "en",
@@ -340,9 +351,9 @@ root.addEventListener("change", async (event) => {
       state.quote.sendFeedback = "";
 
       if (state.quote.selectedCaseId) {
-        const response = await fetchCase(state.quote.selectedCaseId);
-        state.quote.selectedCase = withProductItems(response.case);
-        state.quote.emailDraft = response.case.quoteEmailDraft || null;
+        const caseRecord = await loadCaseDetail(state.quote.selectedCaseId);
+        state.quote.selectedCase = withProductItems(caseRecord);
+        state.quote.emailDraft = caseRecord.quoteEmailDraft || null;
       } else {
         state.quote.selectedCase = null;
       }
@@ -511,9 +522,9 @@ async function syncRouteData() {
       mount();
     }
     try {
-      const response = await fetchCases();
-      state.cases = response.cases;
-      state.allowedStatuses = response.allowedStatuses;
+      const { cases, allowedStatuses } = await loadCaseSummaries();
+      state.cases = cases;
+      state.allowedStatuses = allowedStatuses;
 
       if (!state.quote.selectedCaseId && state.cases.length) {
         state.quote.selectedCaseId = state.selectedCaseId || state.cases[0].caseId;
@@ -526,9 +537,9 @@ async function syncRouteData() {
       }
 
       if (window.location.hash === "#/quote" && state.quote.selectedCaseId) {
-        const caseResponse = await fetchCase(state.quote.selectedCaseId);
-        state.quote.selectedCase = withProductItems(caseResponse.case);
-        state.quote.emailDraft = caseResponse.case.quoteEmailDraft || null;
+        const caseRecord = await loadCaseDetail(state.quote.selectedCaseId);
+        state.quote.selectedCase = withProductItems(caseRecord);
+        state.quote.emailDraft = caseRecord.quoteEmailDraft || null;
       }
     } finally {
       state.loadingCases = false;
@@ -619,6 +630,7 @@ async function submitIntake() {
   state.selectedCase = response.case;
   state.selectedProductIndex = 0;
   state.modalOpen = true;
+  cacheCaseRecord(response.case);
   replaceCaseSummary(response.case);
   window.location.hash = "#/case";
   await syncRouteData();
@@ -679,9 +691,9 @@ function syncIntakeActivityFromCase(caseRecord) {
 }
 
 async function openCase(caseId) {
-  const response = await fetchCase(caseId);
+  const caseRecord = await loadCaseDetail(caseId);
   state.selectedCaseId = caseId;
-  state.selectedCase = withProductItems(response.case);
+  state.selectedCase = withProductItems(caseRecord);
   state.selectedProductIndex = 0;
   state.modalOpen = true;
   mount();
@@ -851,21 +863,7 @@ function sendQuoteEmail() {
 
 function replaceCaseSummary(caseRecord) {
   const normalizedCase = withProductItems(caseRecord);
-  const primaryProduct = normalizedCase.productItems[0];
-  const summary = {
-    caseId: normalizedCase.caseId,
-    customerName: normalizedCase.customerName,
-    projectName: normalizedCase.projectName,
-    owner: normalizedCase.owner,
-    status: normalizedCase.status,
-    createdAt: normalizedCase.createdAt,
-    updatedAt: normalizedCase.updatedAt,
-    productType: primaryProduct?.productType || normalizedCase.extractedFields.find((field) => field.fieldName === "Product Type")?.value || "",
-    material: primaryProduct?.materialGrade || normalizedCase.extractedFields.find((field) => field.fieldName === "Material / Grade")?.value || "",
-    quantity: primaryProduct?.quantity || normalizedCase.extractedFields.find((field) => field.fieldName === "Quantity")?.value || "",
-    productItems: normalizedCase.productItems,
-    knowledgeStatus: normalizedCase.knowledgeComparison?.recommendedStatus || "",
-  };
+  const summary = buildCaseSummary(normalizedCase);
 
   const index = state.cases.findIndex((entry) => entry.caseId === summary.caseId);
 
@@ -874,6 +872,8 @@ function replaceCaseSummary(caseRecord) {
   } else {
     state.cases.unshift(summary);
   }
+
+  cacheCaseRecord(normalizedCase);
 }
 
 function syncUpdatedCase(caseRecord) {
@@ -1035,4 +1035,112 @@ function mergeKnowledgeFiles(existingFiles, incomingFiles) {
   }
 
   return [...fileMap.values()].sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+}
+
+async function loadCaseDetail(caseId) {
+  try {
+    const response = await fetchCase(caseId);
+    cacheCaseRecord(response.case);
+    return response.case;
+  } catch (error) {
+    const cached = readCachedCase(caseId);
+
+    if (cached) {
+      return cached;
+    }
+
+    throw error;
+  }
+}
+
+async function loadCaseSummaries() {
+  try {
+    const response = await fetchCases();
+    return {
+      cases: mergeCaseSummariesWithCache(response.cases),
+      allowedStatuses: response.allowedStatuses,
+    };
+  } catch (error) {
+    const cachedCases = mergeCaseSummariesWithCache([]);
+
+    if (!cachedCases.length) {
+      throw error;
+    }
+
+    return {
+      cases: cachedCases,
+      allowedStatuses: state.allowedStatuses.length ? state.allowedStatuses : DEFAULT_ALLOWED_STATUSES,
+    };
+  }
+}
+
+function buildCaseSummary(caseRecord) {
+  const normalizedCase = withProductItems(caseRecord);
+  const primaryProduct = normalizedCase.productItems[0];
+
+  return {
+    caseId: normalizedCase.caseId,
+    customerName: normalizedCase.customerName,
+    projectName: normalizedCase.projectName,
+    owner: normalizedCase.owner,
+    status: normalizedCase.status,
+    createdAt: normalizedCase.createdAt,
+    updatedAt: normalizedCase.updatedAt,
+    productType: primaryProduct?.productType || normalizedCase.extractedFields.find((field) => field.fieldName === "Product Type")?.value || "",
+    material: primaryProduct?.materialGrade || normalizedCase.extractedFields.find((field) => field.fieldName === "Material / Grade")?.value || "",
+    quantity: primaryProduct?.quantity || normalizedCase.extractedFields.find((field) => field.fieldName === "Quantity")?.value || "",
+    productItems: normalizedCase.productItems,
+    knowledgeStatus: normalizedCase.knowledgeComparison?.recommendedStatus || "",
+  };
+}
+
+function mergeCaseSummariesWithCache(remoteSummaries) {
+  const merged = new Map();
+
+  for (const summary of remoteSummaries || []) {
+    merged.set(summary.caseId, summary);
+  }
+
+  for (const caseRecord of Object.values(readCachedCaseMap())) {
+    const summary = buildCaseSummary(caseRecord);
+
+    if (!merged.has(summary.caseId)) {
+      merged.set(summary.caseId, summary);
+    }
+  }
+
+  return [...merged.values()].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+}
+
+function cacheCaseRecord(caseRecord) {
+  if (!caseRecord?.caseId) {
+    return;
+  }
+
+  const cache = readCachedCaseMap();
+  cache[caseRecord.caseId] = withProductItems(caseRecord);
+  writeCachedCaseMap(cache);
+}
+
+function readCachedCase(caseId) {
+  const cache = readCachedCaseMap();
+  return cache[caseId] || null;
+}
+
+function readCachedCaseMap() {
+  try {
+    const raw = globalThis.localStorage?.getItem(CASE_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCachedCaseMap(cache) {
+  try {
+    globalThis.localStorage?.setItem(CASE_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Ignore local cache write failures.
+  }
 }
