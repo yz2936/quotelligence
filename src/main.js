@@ -59,6 +59,7 @@ const state = {
     backendAvailable: false,
     aiConfigured: false,
     model: "",
+    storageMode: "",
   },
   analyst: {
     open: true,
@@ -582,6 +583,7 @@ async function syncSystemStatus() {
       backendAvailable: false,
       aiConfigured: false,
       model: "",
+      storageMode: "",
     };
   }
 }
@@ -727,7 +729,13 @@ async function submitKnowledgeUpload(files) {
       language: state.language,
     });
 
-    state.knowledge.files = mergeKnowledgeFiles(state.knowledge.files, response.knowledgeFiles);
+    if (shouldUseBackendAuthoritativeData()) {
+      const knowledgeResponse = await fetchKnowledgeBase();
+      state.knowledge.files = knowledgeResponse.knowledgeFiles;
+      state.knowledge.categories = knowledgeResponse.categories;
+    } else {
+      state.knowledge.files = mergeKnowledgeFiles(state.knowledge.files, response.knowledgeFiles);
+    }
     state.knowledge.uploadFeedback =
       state.language === "zh"
         ? `已上传 ${response.knowledgeFiles.length} 个知识文件。`
@@ -1059,6 +1067,10 @@ async function loadCaseDetail(caseId) {
     cacheCaseRecord(response.case);
     return response.case;
   } catch (error) {
+    if (shouldUseBackendAuthoritativeData()) {
+      throw error;
+    }
+
     const cached = readCachedCase(caseId);
 
     if (cached) {
@@ -1072,11 +1084,18 @@ async function loadCaseDetail(caseId) {
 async function loadCaseSummaries() {
   try {
     const response = await fetchCases();
+    if (shouldUseBackendAuthoritativeData()) {
+      syncCaseCacheFromRemote(response.cases);
+    }
     return {
-      cases: mergeCaseSummariesWithCache(response.cases),
+      cases: shouldUseBackendAuthoritativeData() ? response.cases : mergeCaseSummariesWithCache(response.cases),
       allowedStatuses: response.allowedStatuses,
     };
   } catch (error) {
+    if (shouldUseBackendAuthoritativeData()) {
+      throw error;
+    }
+
     const cachedCases = mergeCaseSummariesWithCache([]);
 
     if (!cachedCases.length) {
@@ -1129,6 +1148,10 @@ function mergeCaseSummariesWithCache(remoteSummaries) {
 }
 
 function cacheCaseRecord(caseRecord) {
+  if (shouldUseBackendAuthoritativeData()) {
+    return;
+  }
+
   if (!caseRecord?.caseId) {
     return;
   }
@@ -1159,6 +1182,23 @@ function writeCachedCaseMap(cache) {
   } catch {
     // Ignore local cache write failures.
   }
+}
+
+function shouldUseBackendAuthoritativeData() {
+  return state.system.backendAvailable && state.system.storageMode === "database";
+}
+
+function syncCaseCacheFromRemote(remoteCases) {
+  const cache = {};
+
+  for (const summary of remoteCases || []) {
+    const existing = readCachedCase(summary.caseId);
+    if (existing) {
+      cache[summary.caseId] = existing;
+    }
+  }
+
+  writeCachedCaseMap(cache);
 }
 
 function captureViewState() {
