@@ -100,12 +100,14 @@ async function createAnalysisWithFallback({ emailText, parsedFiles, language }) 
 
   if (hasConfiguredOpenAI) {
     // Try Agent 1+2 pipeline first (richer extraction + technical normalization)
-    try {
-      const agent1Result = await runAgent1({ emailText, files: parsedFiles, language });
-      const agent2Result = await runAgent2({ agent1Result, language });
-      return mapPipelineToCaseFields(agent1Result, agent2Result);
-    } catch (pipelineError) {
-      console.error("Agent pipeline (1+2) failed, falling back to standard analysis:", pipelineError);
+    if (shouldUseIntakeAgentPipeline()) {
+      try {
+        const agent1Result = await runAgent1({ emailText, files: parsedFiles, language });
+        const agent2Result = await runAgent2({ agent1Result, language });
+        return mapPipelineToCaseFields(agent1Result, agent2Result);
+      } catch (pipelineError) {
+        console.error("Agent pipeline (1+2) failed, falling back to standard analysis:", pipelineError);
+      }
     }
 
     // Fall back to single-step generateCaseAnalysis
@@ -122,6 +124,20 @@ async function createAnalysisWithFallback({ emailText, parsedFiles, language }) 
 
   console.error("No OpenAI API key configured, using heuristic parsing.");
   return buildHeuristicAnalysis({ emailText, parsedFiles });
+}
+
+function shouldUseIntakeAgentPipeline() {
+  // The 2-step intake pipeline is more likely to exceed serverless limits
+  // than the single-step parser, especially for spreadsheet uploads.
+  if (String(process.env.VERCEL || "").trim()) {
+    return false;
+  }
+
+  if (String(process.env.AWS_LAMBDA_FUNCTION_NAME || "").trim()) {
+    return false;
+  }
+
+  return true;
 }
 
 export function deriveMissingInfo(extractedFields) {

@@ -184,6 +184,18 @@ function inferNonJsonApiError({ body, context, response }) {
     const type = String(file?.type || "").toLowerCase();
     return name.endsWith(".pdf") || type === "application/pdf";
   });
+  const hasSpreadsheet = files.some((file) => {
+    const name = String(file?.name || "").toLowerCase();
+    const type = String(file?.type || "").toLowerCase();
+    return (
+      name.endsWith(".xlsx") ||
+      name.endsWith(".xls") ||
+      name.endsWith(".csv") ||
+      type.includes("spreadsheet") ||
+      type.includes("excel") ||
+      type === "text/csv"
+    );
+  });
 
   if (
     hasPdf &&
@@ -204,6 +216,15 @@ function inferNonJsonApiError({ body, context, response }) {
       /function invocation failed|internal server error|gateway|timed out|timeout|runtime exited|deployment error/i.test(lowered))
   ) {
     return "Draft quote generation failed before the backend returned JSON. Retry once, then check the Vercel function logs for /api/quote/build.";
+  }
+
+  if (
+    operation === "rfq_intake" &&
+    hasSpreadsheet &&
+    (response.status >= 500 ||
+      /function invocation failed|internal server error|gateway|timed out|timeout|runtime exited|deployment error/i.test(lowered))
+  ) {
+    return "Excel intake parsing failed before the backend returned JSON. Retry once, then check the Vercel function logs for /api/intake.";
   }
 
   if (
