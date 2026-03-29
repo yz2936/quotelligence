@@ -428,6 +428,10 @@ export async function handleRequest(req, res) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
+    if (res.headersSent) {
+      return;
+    }
+
     if (message === "cannot parse PDF") {
       return sendJson(res, 422, {
         error: "cannot parse PDF",
@@ -441,7 +445,16 @@ export async function handleRequest(req, res) {
   }
 }
 
-export const server = http.createServer(handleRequest);
+export const server = http.createServer(async (req, res) => {
+  try {
+    await handleRequest(req, res);
+  } catch (err) {
+    if (!res.headersSent) {
+      res.writeHead(500, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ error: "Server error", details: String(err) }));
+    }
+  }
+});
 
 if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   server.listen(port, () => {
