@@ -1,9 +1,8 @@
-import { createClient } from "../node_modules/@supabase/supabase-js/dist/index.mjs";
-
 let supabaseClient = null;
 let supabaseConfigKey = "";
+let createClientLoader = null;
 
-export function configureSupabaseClient({ url, anonKey }) {
+export async function configureSupabaseClient({ url, anonKey }) {
   const nextUrl = String(url || "").trim();
   const nextAnonKey = String(anonKey || "").trim();
   const nextConfigKey = `${nextUrl}::${nextAnonKey}`;
@@ -18,6 +17,7 @@ export function configureSupabaseClient({ url, anonKey }) {
     return supabaseClient;
   }
 
+  const createClient = await loadCreateClient();
   supabaseClient = createClient(nextUrl, nextAnonKey, {
     auth: {
       persistSession: true,
@@ -89,4 +89,21 @@ export async function signOutSession() {
 export async function getAccessToken() {
   const session = await getCurrentSession();
   return session?.access_token || "";
+}
+
+async function loadCreateClient() {
+  if (!createClientLoader) {
+    createClientLoader = importClientModule();
+  }
+
+  const module = await createClientLoader;
+  return module.createClient;
+}
+
+async function importClientModule() {
+  if (typeof window !== "undefined" && typeof document !== "undefined") {
+    return import("https://esm.sh/@supabase/supabase-js@2");
+  }
+
+  return import("@supabase/supabase-js");
 }

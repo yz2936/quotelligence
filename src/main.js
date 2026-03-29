@@ -1270,7 +1270,7 @@ async function syncSupabaseAuthClient(supabaseConfig) {
   }
 
   const nextConfigKey = `${supabaseConfig.url}::${supabaseConfig.anonKey}`;
-  configureSupabaseClient({
+  await configureSupabaseClient({
     url: supabaseConfig.url,
     anonKey: supabaseConfig.anonKey,
   });
