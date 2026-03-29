@@ -573,7 +573,7 @@ function renderKnowledgeComparison(state) {
   return {
     title: t(language, "knowledgeLibraryNav"),
     body: `
-      <div class="content-stack knowledge-stack">
+      <div class="content-stack knowledge-stack quote-workspace">
         ${renderSection({
           title: t(language, "knowledgeLibrary"),
           description: t(language, "knowledgeLibraryDescription"),

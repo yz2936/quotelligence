@@ -373,7 +373,7 @@ p { margin: 0; }
 }
 
 .main-panel--with-analyst {
-  padding-right: 428px;
+  padding-right: clamp(40px, 30vw, 404px);
 }
 
 /* ── Topbar ─────────────────────────────────────────────── */
@@ -1084,6 +1084,8 @@ p { margin: 0; }
 
 /* ── Tables ─────────────────────────────────────────────── */
 .table-shell {
+  width: 100%;
+  min-width: 0;
   overflow-x: auto;
   border-radius: var(--r-md);
   border: 1px solid var(--border);
@@ -1590,8 +1592,22 @@ td.case-table__actions .button { display: inline-flex; }
 .quote-term-field__input { min-height: 36px; }
 
 /* ── Quote Builder Table ────────────────────────────────── */
-.quote-builder-table { min-width: 1100px; }
+.quote-workspace {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+.quote-workspace .summary-card,
+.quote-workspace .table-shell {
+  min-width: 0;
+}
+
+.quote-builder-table { min-width: 960px; }
 .quote-builder-table td { vertical-align: top; }
+.quote-builder-table .text-input--table {
+  min-width: 0;
+}
 
 .quote-charge-list { display: grid; gap: 7px; }
 .quote-summary-actions { margin-top: 10px; }
