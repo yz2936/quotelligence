@@ -1271,9 +1271,23 @@ async function sendQuoteEmail() {
     }
   }
 
+  let bodyHandled = false;
+
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(emailDraft.body || "");
+      bodyHandled = true;
+    } catch {
+      bodyHandled = false;
+    }
+  }
+
+  if (!bodyHandled) {
+    downloadEmailBodyText(emailDraft);
+  }
+
   const params = new URLSearchParams({
     subject: emailDraft.subject,
-    body: emailDraft.body,
   });
 
   if (emailDraft.cc) {
@@ -1283,9 +1297,27 @@ async function sendQuoteEmail() {
   globalThis.location.href = `mailto:${encodeURIComponent(emailDraft.to)}?${params.toString()}`;
   state.quote.sendFeedback =
     state.language === "zh"
-      ? "已下载正式 PDF，并打开默认邮件客户端。请将 PDF 附加到邮件后发送。"
-      : "Downloaded the formal PDF and opened your default mail client. Attach the PDF before sending.";
+      ? bodyHandled
+        ? "已下载正式 PDF，并打开默认邮件客户端。邮件正文已复制到剪贴板，请粘贴正文并附加 PDF 后发送。"
+        : "已下载正式 PDF，并打开默认邮件客户端。邮件正文已另存为文本文件，请粘贴正文并附加 PDF 后发送。"
+      : bodyHandled
+        ? "Downloaded the formal PDF and opened your mail client. The email body was copied to your clipboard. Paste it in and attach the PDF before sending."
+        : "Downloaded the formal PDF and opened your mail client. The email body was saved as a text file. Paste it in and attach the PDF before sending.";
   mount();
+}
+
+function downloadEmailBodyText(emailDraft) {
+  const blob = new Blob([emailDraft.body || ""], { type: "text/plain;charset=utf-8" });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const baseName = String(emailDraft.attachmentFileName || "quote-email").replace(/\.pdf$/i, "");
+
+  link.href = objectUrl;
+  link.download = `${baseName}-email.txt`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
 }
 
 function replaceCaseSummary(caseRecord) {
