@@ -595,11 +595,17 @@ async function serveStatic(requestPath, res) {
 
   try {
     const file = await fs.readFile(targetPath);
-    res.writeHead(200, { "content-type": MIME_TYPES[path.extname(targetPath)] || "application/octet-stream" });
+    res.writeHead(200, {
+      "cache-control": "no-store, max-age=0",
+      "content-type": MIME_TYPES[path.extname(targetPath)] || "application/octet-stream",
+    });
     res.end(file);
   } catch {
     const indexFile = await fs.readFile(path.join(__dirname, "index.html"));
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.writeHead(200, {
+      "cache-control": "no-store, max-age=0",
+      "content-type": "text/html; charset=utf-8",
+    });
     res.end(indexFile);
   }
 }
