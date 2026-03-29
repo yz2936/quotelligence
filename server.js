@@ -16,6 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 loadEnv(__dirname);
 const port = Number(process.env.PORT || 4173);
+const FOLLOW_UP_DAYS = 5;
 
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
@@ -356,6 +357,144 @@ export async function handleRequest(req, res) {
       });
     }
 
+    if (url.pathname === "/api/quote/approve" && req.method === "POST") {
+      const payload = await readJsonBody(req);
+      const caseId = String(payload.caseId || "");
+      const language = String(payload.language || "en");
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
+
+      if (!caseRecord) {
+        return sendJson(res, 404, { error: "Case not found" });
+      }
+
+      const quoteEstimate = normalizeStoredQuoteEstimate({
+        caseRecord,
+        quoteEstimate: payload.quoteEstimate || caseRecord.quoteEstimate,
+        language,
+      });
+      const blockingIssues = getQuoteApprovalBlockingIssues(quoteEstimate);
+
+      if (blockingIssues.length) {
+        return sendJson(res, 422, {
+          error: "Quote approval blocked",
+          details: blockingIssues[0],
+          issues: blockingIssues,
+        });
+      }
+
+      const now = new Date();
+      const lifecycle = {
+        ...ensureQuoteLifecycle(caseRecord),
+        status: "approved",
+        approvedAt: now.toISOString(),
+        sentAt: null,
+        followUpDue: null,
+        outcome: null,
+        recordedAt: null,
+        recordedBy: String(payload.actor || "user"),
+        totalValue: Number(quoteEstimate.total || 0),
+        currency: quoteEstimate.currency || "USD",
+        flagCounts: quoteEstimate.flagCounts || countQuoteFlags(quoteEstimate),
+      };
+
+      const updated = syncCaseWorkflow({
+        previousCase: caseRecord,
+        actor: String(payload.actor || "user"),
+        source: "quote_approve",
+        now,
+        nextCase: {
+          ...caseRecord,
+          quoteEstimate,
+          quoteLifecycle: lifecycle,
+          quoteHistory: appendQuoteHistory(caseRecord.quoteHistory, createQuoteHistoryEntry({
+            caseRecord: {
+              ...caseRecord,
+              quoteEstimate,
+              quoteLifecycle: lifecycle,
+            },
+            type: "quote_approved",
+            title: "Quote approved",
+            actor: String(payload.actor || "user"),
+            now,
+          })),
+          updatedAt: now.toISOString().slice(0, 10),
+        },
+      });
+
+      await saveCase(updated);
+      return sendJson(res, 200, { case: updated });
+    }
+
+    if (url.pathname === "/api/quote/mark-sent" && req.method === "POST") {
+      const payload = await readJsonBody(req);
+      const caseId = String(payload.caseId || "");
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
+
+      if (!caseRecord) {
+        return sendJson(res, 404, { error: "Case not found" });
+      }
+
+      const quoteEstimate = caseRecord.quoteEstimate
+        ? normalizeStoredQuoteEstimate({
+            caseRecord,
+            quoteEstimate: payload.quoteEstimate || caseRecord.quoteEstimate,
+            language: String(payload.language || "en"),
+          })
+        : null;
+
+      if (!quoteEstimate) {
+        return sendJson(res, 422, { error: "Draft quote not found" });
+      }
+
+      const blockingIssues = getQuoteApprovalBlockingIssues(quoteEstimate);
+      if (blockingIssues.length) {
+        return sendJson(res, 422, {
+          error: "Quote cannot be marked sent yet",
+          details: blockingIssues[0],
+          issues: blockingIssues,
+        });
+      }
+
+      const now = new Date();
+      const lifecycle = {
+        ...ensureQuoteLifecycle(caseRecord),
+        status: "sent",
+        approvedAt: caseRecord.quoteLifecycle?.approvedAt || now.toISOString(),
+        sentAt: now.toISOString(),
+        followUpDue: addDays(now, FOLLOW_UP_DAYS).toISOString(),
+        totalValue: Number(quoteEstimate.total || 0),
+        currency: quoteEstimate.currency || "USD",
+        flagCounts: quoteEstimate.flagCounts || countQuoteFlags(quoteEstimate),
+      };
+
+      const updated = syncCaseWorkflow({
+        previousCase: caseRecord,
+        actor: String(payload.actor || "user"),
+        source: "quote_mark_sent",
+        now,
+        nextCase: {
+          ...caseRecord,
+          quoteEstimate,
+          quoteLifecycle: lifecycle,
+          quoteHistory: appendQuoteHistory(caseRecord.quoteHistory, createQuoteHistoryEntry({
+            caseRecord: {
+              ...caseRecord,
+              quoteEstimate,
+              quoteLifecycle: lifecycle,
+            },
+            type: "quote_sent",
+            title: "Quote sent to customer",
+            actor: String(payload.actor || "user"),
+            now,
+          })),
+          updatedAt: now.toISOString().slice(0, 10),
+        },
+      });
+
+      await saveCase(updated);
+      return sendJson(res, 200, { case: updated });
+    }
+
     if (url.pathname === "/api/quote/email" && req.method === "POST") {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
@@ -451,6 +590,76 @@ export async function handleRequest(req, res) {
       return sendJson(res, 200, { case: updated });
     }
 
+    if (url.pathname === "/api/outcomes/pending" && req.method === "GET") {
+      const cases = await listCases();
+      return sendJson(res, 200, {
+        items: buildPendingOutcomes(cases),
+      });
+    }
+
+    if (url.pathname === "/api/outcomes" && req.method === "POST") {
+      const payload = await readJsonBody(req);
+      const caseId = String(payload.caseId || "");
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
+      const result = String(payload.result || "").trim().toLowerCase();
+
+      if (!caseRecord) {
+        return sendJson(res, 404, { error: "Case not found" });
+      }
+
+      if (!["won", "lost", "negotiating", "no_response"].includes(result)) {
+        return sendJson(res, 422, { error: "Unsupported outcome result" });
+      }
+
+      if (result === "won" && !Number.isFinite(Number(payload.finalPrice))) {
+        return sendJson(res, 422, { error: "Final price is required when the quote is won." });
+      }
+
+      const now = new Date();
+      const lifecycle = {
+        ...ensureQuoteLifecycle(caseRecord),
+        status: result,
+        outcome: result,
+        recordedAt: now.toISOString(),
+        recordedBy: String(payload.actor || "user"),
+        finalPrice: Number.isFinite(Number(payload.finalPrice)) ? Number(payload.finalPrice) : null,
+        lossReason: String(payload.lossReason || "").trim(),
+        competitorPrice: Number.isFinite(Number(payload.competitorPrice)) ? Number(payload.competitorPrice) : null,
+      };
+
+      const updated = syncCaseWorkflow({
+        previousCase: caseRecord,
+        actor: String(payload.actor || "user"),
+        source: "quote_outcome",
+        now,
+        nextCase: {
+          ...caseRecord,
+          quoteLifecycle: lifecycle,
+          quoteHistory: appendQuoteHistory(caseRecord.quoteHistory, createQuoteHistoryEntry({
+            caseRecord: {
+              ...caseRecord,
+              quoteLifecycle: lifecycle,
+            },
+            type: "outcome_logged",
+            title: `Outcome logged: ${result}`,
+            actor: String(payload.actor || "user"),
+            now,
+          })),
+          updatedAt: now.toISOString().slice(0, 10),
+        },
+      });
+
+      await saveCase(updated);
+      return sendJson(res, 200, { case: updated });
+    }
+
+    if (url.pathname === "/api/dashboard/stats" && req.method === "GET") {
+      const cases = await listCases();
+      return sendJson(res, 200, {
+        stats: buildDashboardStats(cases),
+      });
+    }
+
     if (req.method === "GET") {
       return serveStatic(url.pathname, res);
     }
@@ -486,6 +695,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
 
 function summarizeCase(caseRecord) {
   const primaryProduct = caseRecord.productItems?.[0];
+  const quoteLifecycle = ensureQuoteLifecycle(caseRecord);
+  const quoteEstimate = caseRecord.quoteEstimate || null;
   return {
     caseId: caseRecord.caseId,
     customerName: caseRecord.customerName,
@@ -498,6 +709,15 @@ function summarizeCase(caseRecord) {
     material: primaryProduct?.materialGrade || fieldValue(caseRecord, "Material / Grade"),
     quantity: primaryProduct?.quantity || fieldValue(caseRecord, "Quantity"),
     knowledgeStatus: caseRecord.knowledgeComparison?.recommendedStatus || "",
+    quoteLifecycle,
+    quoteSummary: quoteEstimate
+      ? {
+          total: Number(quoteEstimate.total || 0),
+          currency: quoteEstimate.currency || "USD",
+          flagCounts: quoteEstimate.flagCounts || countQuoteFlags(quoteEstimate),
+          blendedMarginPct: Number(quoteEstimate.blendedMarginPct || 0),
+        }
+      : null,
     productItems: (caseRecord.productItems || []).map((item, index) => ({
       productId: item.productId || `product-${index + 1}`,
       label: item.label || `Product ${index + 1}`,
@@ -548,6 +768,7 @@ function createQuoteHistoryEntry({ caseRecord, type, title, actor = "system", no
     subtotal: Number(quoteEstimate.subtotal || 0),
     total: Number(quoteEstimate.total || 0),
     incoterm: quoteEstimate.incoterm || "",
+    lifecycleStatus: caseRecord.quoteLifecycle?.status || "",
     terms: {
       paymentTerms: quoteEstimate.terms?.paymentTerms || "",
       validityTerms: quoteEstimate.terms?.validityTerms || "",
@@ -564,6 +785,225 @@ function createQuoteHistoryEntry({ caseRecord, type, title, actor = "system", no
     })),
     emailSubject: caseRecord.quoteEmailDraft?.subject || "",
   };
+}
+
+function ensureQuoteLifecycle(caseRecord) {
+  const lifecycle = caseRecord?.quoteLifecycle || {};
+
+  return {
+    quoteNumber: lifecycle.quoteNumber || buildQuoteNumber(caseRecord),
+    status: lifecycle.status || (caseRecord?.quoteEstimate ? "draft" : "not_started"),
+    approvedAt: lifecycle.approvedAt || null,
+    sentAt: lifecycle.sentAt || null,
+    followUpDue: lifecycle.followUpDue || null,
+    outcome: lifecycle.outcome || null,
+    recordedAt: lifecycle.recordedAt || null,
+    recordedBy: lifecycle.recordedBy || "",
+    finalPrice: Number.isFinite(Number(lifecycle.finalPrice)) ? Number(lifecycle.finalPrice) : null,
+    lossReason: lifecycle.lossReason || "",
+    competitorPrice: Number.isFinite(Number(lifecycle.competitorPrice)) ? Number(lifecycle.competitorPrice) : null,
+    totalValue: Number.isFinite(Number(lifecycle.totalValue)) ? Number(lifecycle.totalValue) : Number(caseRecord?.quoteEstimate?.total || 0),
+    currency: lifecycle.currency || caseRecord?.quoteEstimate?.currency || "USD",
+    flagCounts: lifecycle.flagCounts || countQuoteFlags(caseRecord?.quoteEstimate),
+  };
+}
+
+function buildQuoteNumber(caseRecord) {
+  const createdAt = String(caseRecord?.createdAt || "").replace(/-/g, "");
+  return `Q-${createdAt || "00000000"}-${String(caseRecord?.caseId || "0000").slice(-4)}`;
+}
+
+function countQuoteFlags(quoteEstimate) {
+  const counts = { green: 0, yellow: 0, red: 0 };
+
+  for (const item of quoteEstimate?.lineItems || []) {
+    const key = String(item.reviewFlag || "").toLowerCase();
+
+    if (key === "green" || key === "yellow" || key === "red") {
+      counts[key] += 1;
+    }
+  }
+
+  return counts;
+}
+
+function getQuoteApprovalBlockingIssues(quoteEstimate) {
+  const issues = [];
+
+  for (const item of quoteEstimate?.lineItems || []) {
+    const finalPrice = Number(item.finalPrice);
+    const label = item.productLabel || item.lineId || "Line item";
+
+    if ((item.reviewFlag || "").toUpperCase() === "RED" && !(Number.isFinite(finalPrice) && finalPrice > 0)) {
+      issues.push(`${label} is RED and still needs a final price.`);
+      continue;
+    }
+
+    if (!(Number.isFinite(finalPrice) && finalPrice > 0) && !(Number.isFinite(Number(item.unitPrice)) && Number(item.unitPrice) > 0)) {
+      issues.push(`${label} does not have a usable final price.`);
+    }
+  }
+
+  return issues;
+}
+
+function buildPendingOutcomes(cases, now = new Date()) {
+  return cases
+    .filter((caseRecord) => {
+      const lifecycle = ensureQuoteLifecycle(caseRecord);
+      return lifecycle.status === "sent" && lifecycle.followUpDue && new Date(lifecycle.followUpDue) <= now;
+    })
+    .map((caseRecord) => {
+      const lifecycle = ensureQuoteLifecycle(caseRecord);
+      return {
+        caseId: caseRecord.caseId,
+        quoteNumber: lifecycle.quoteNumber,
+        customerName: caseRecord.customerName,
+        projectName: caseRecord.projectName,
+        sentAt: lifecycle.sentAt,
+        followUpDue: lifecycle.followUpDue,
+        daysOverdue: differenceInDays(now, lifecycle.followUpDue),
+        totalValue: lifecycle.totalValue,
+        currency: lifecycle.currency || "USD",
+      };
+    })
+    .sort((a, b) => String(a.followUpDue || "").localeCompare(String(b.followUpDue || "")));
+}
+
+function buildDashboardStats(cases, now = new Date()) {
+  const lifecycleCases = cases.map((caseRecord) => ({ caseRecord, lifecycle: ensureQuoteLifecycle(caseRecord) }));
+  const last30Days = lifecycleCases.filter(({ lifecycle }) => isWithinDays(lifecycle.recordedAt || lifecycle.sentAt, 30, now));
+  const sent30d = lifecycleCases.filter(({ lifecycle }) => isWithinDays(lifecycle.sentAt, 30, now));
+  const outcomes30d = last30Days.filter(({ lifecycle }) => ["won", "lost"].includes(lifecycle.outcome));
+  const won30d = outcomes30d.filter(({ lifecycle }) => lifecycle.outcome === "won");
+  const approvedOrSent90d = lifecycleCases.filter(({ lifecycle }) => isWithinDays(lifecycle.approvedAt || lifecycle.sentAt, 90, now));
+  const topCustomers = Object.values(
+    lifecycleCases.reduce((acc, { caseRecord }) => {
+      if (!caseRecord.quoteEstimate) {
+        return acc;
+      }
+
+      const key = String(caseRecord.customerName || "Unknown Customer");
+      acc[key] = acc[key] || { customerName: key, quoteCount: 0, totalValue: 0 };
+      acc[key].quoteCount += 1;
+      acc[key].totalValue += Number(caseRecord.quoteEstimate?.total || 0);
+      return acc;
+    }, {})
+  )
+    .sort((a, b) => b.totalValue - a.totalValue)
+    .slice(0, 5);
+  const flagDistribution90d = approvedOrSent90d.reduce(
+    (counts, { caseRecord }) => {
+      const flagCounts = countQuoteFlags(caseRecord.quoteEstimate);
+      counts.green += flagCounts.green;
+      counts.yellow += flagCounts.yellow;
+      counts.red += flagCounts.red;
+      return counts;
+    },
+    { green: 0, yellow: 0, red: 0 }
+  );
+
+  return {
+    winRate30d: outcomes30d.length ? roundStat((won30d.length / outcomes30d.length) * 100) : 0,
+    avgMargin30d: won30d.length
+      ? roundStat(won30d.reduce((sum, { caseRecord }) => sum + Number(caseRecord.quoteEstimate?.blendedMarginPct || 0), 0) / won30d.length)
+      : 0,
+    quotesSent30d: sent30d.length,
+    avgTurnaroundHours: sent30d.length
+      ? roundStat(
+          sent30d.reduce((sum, { caseRecord, lifecycle }) => sum + hoursBetween(caseRecord.createdAt, lifecycle.sentAt), 0) / sent30d.length
+        )
+      : 0,
+    pendingFollowUps: buildPendingOutcomes(cases, now).length,
+    flagDistribution90d,
+    topCustomers,
+    quoteVolumeByWeek: buildQuoteVolumeByWeek(cases, now),
+  };
+}
+
+function buildQuoteVolumeByWeek(cases, now = new Date()) {
+  const buckets = new Map();
+
+  for (let index = 11; index >= 0; index -= 1) {
+    const bucketDate = addDays(now, index * -7);
+    buckets.set(weekBucketLabel(bucketDate), { week: weekBucketLabel(bucketDate), green: 0, yellow: 0, red: 0 });
+  }
+
+  for (const caseRecord of cases) {
+    const lifecycle = ensureQuoteLifecycle(caseRecord);
+
+    if (!isWithinDays(lifecycle.approvedAt || lifecycle.sentAt || caseRecord.updatedAt, 90, now)) {
+      continue;
+    }
+
+    const label = weekBucketLabel(lifecycle.approvedAt || lifecycle.sentAt || caseRecord.updatedAt);
+    const bucket = buckets.get(label);
+
+    if (!bucket) {
+      continue;
+    }
+
+    const flagCounts = countQuoteFlags(caseRecord.quoteEstimate);
+    bucket.green += flagCounts.green;
+    bucket.yellow += flagCounts.yellow;
+    bucket.red += flagCounts.red;
+  }
+
+  return [...buckets.values()];
+}
+
+function isWithinDays(value, days, now = new Date()) {
+  if (!value) {
+    return false;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+
+  return now.getTime() - date.getTime() <= days * 24 * 60 * 60 * 1000;
+}
+
+function differenceInDays(now, value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 0;
+  }
+
+  return Math.max(0, Math.floor((now.getTime() - date.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function hoursBetween(startValue, endValue) {
+  const start = new Date(startValue);
+  const end = new Date(endValue);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return 0;
+  }
+
+  return (end.getTime() - start.getTime()) / (60 * 60 * 1000);
+}
+
+function weekBucketLabel(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const start = new Date(date);
+  start.setDate(start.getDate() - start.getDay());
+  return start.toISOString().slice(0, 10);
+}
+
+function roundStat(value) {
+  return Number(Number(value || 0).toFixed(2));
 }
 
 async function ensureApiAuth(req) {

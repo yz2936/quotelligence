@@ -532,6 +532,14 @@ function recalculateQuoteEstimate(quoteEstimate, caseRecord, language) {
     const baseUnitPrice = toNumber(existing.baseUnitPrice);
     const adjustmentAmount = toNumber(existing.adjustmentAmount);
     const unitPrice = roundCurrency(baseUnitPrice + adjustmentAmount);
+    const supportingFiles = unique(existing.supportingFiles || []);
+    const reviewState = deriveLineReviewState({
+      existing,
+      quantity,
+      unitPrice,
+      supportingFiles,
+      pricingBasis: existing.pricingBasis || "",
+    });
 
     return {
       lineId: existing.lineId || `line-${index + 1}`,
@@ -543,15 +551,27 @@ function recalculateQuoteEstimate(quoteEstimate, caseRecord, language) {
       baseUnitPrice,
       adjustmentAmount,
       unitPrice,
-      lineTotal: roundCurrency(quantity.value * unitPrice),
+      finalPrice: reviewState.finalPrice,
+      lineTotal: roundCurrency(quantity.value * (reviewState.finalPrice ?? unitPrice)),
       pricingBasis: existing.pricingBasis || explain(language, "No uploaded pricing evidence matched this item."),
-      supportingFiles: unique(existing.supportingFiles || []),
+      supportingFiles,
+      reviewFlag: reviewState.reviewFlag,
+      reviewReason: reviewState.reviewReason,
+      humanReviewed: Boolean(existing.humanReviewed),
     };
   });
 
   const additionalCharges = normalizeCharges(baseDraft.additionalCharges, language);
   const subtotal = roundCurrency(lineItems.reduce((sum, item) => sum + item.lineTotal, 0));
   const total = roundCurrency(subtotal + additionalCharges.reduce((sum, charge) => sum + charge.amount, 0));
+  const flagCounts = countReviewFlags(lineItems);
+  const reviewChecklist = buildQuoteReviewChecklist({
+    lineItems,
+    terms: baseDraft.terms,
+    risks: baseDraft.risks,
+    language,
+  });
+  const blendedMarginPct = calculateBlendedMarginPct(lineItems);
 
   return {
     pricingStatus: baseDraft.pricingStatus || explain(language, "Draft quote ready"),
@@ -573,7 +593,167 @@ function recalculateQuoteEstimate(quoteEstimate, caseRecord, language) {
       baseDraft.summary ||
       explain(language, "A working draft quote is available and can now be adjusted in the case workspace."),
     decisionRecommendation: baseDraft.decisionRecommendation || null,
+    reviewChecklist,
+    flagCounts,
+    blendedMarginPct,
   };
+}
+
+function deriveLineReviewState({ existing, quantity, unitPrice, supportingFiles, pricingBasis }) {
+  const explicitFinalPrice = toNullableNumber(existing.finalPrice);
+  const reviewFlag = normalizeReviewFlag(existing.reviewFlag) || inferReviewFlag({
+    quantity,
+    unitPrice,
+    supportingFiles,
+    pricingBasis,
+  });
+
+  return {
+    reviewFlag,
+    reviewReason: existing.reviewReason || inferReviewReason(reviewFlag, { quantity, unitPrice, supportingFiles, pricingBasis }),
+    finalPrice: explicitFinalPrice ?? (reviewFlag === "RED" ? null : unitPrice),
+  };
+}
+
+function inferReviewFlag({ quantity, unitPrice, supportingFiles, pricingBasis }) {
+  const basis = String(pricingBasis || "").toLowerCase();
+
+  if (!unitPrice || /no uploaded pricing evidence|insufficient pricing support|manual pricing required/.test(basis)) {
+    return "RED";
+  }
+
+  if (!supportingFiles.length) {
+    return "RED";
+  }
+
+  if (!quantity.value || supportingFiles.length === 1 || /review|confirm|limited|fallback|default/.test(basis)) {
+    return "YELLOW";
+  }
+
+  return "GREEN";
+}
+
+function inferReviewReason(reviewFlag, { quantity, unitPrice, supportingFiles, pricingBasis }) {
+  if (reviewFlag === "RED") {
+    if (!unitPrice) {
+      return "No grounded suggested price is available for this line.";
+    }
+
+    if (!supportingFiles.length) {
+      return "No supporting pricing evidence is linked to this line.";
+    }
+
+    return "The pricing basis is too weak for automatic approval.";
+  }
+
+  if (reviewFlag === "YELLOW") {
+    if (!quantity.value) {
+      return "Quoted quantity still needs confirmation.";
+    }
+
+    if (supportingFiles.length <= 1) {
+      return "Only partial pricing evidence supports this recommendation.";
+    }
+
+    if (/review|confirm|limited|fallback|default/i.test(String(pricingBasis || ""))) {
+      return "Pricing uses a fallback or still needs manual confirmation.";
+    }
+
+    return "Review this line before approval.";
+  }
+
+  return "Grounded evidence and a usable draft price are available.";
+}
+
+function normalizeReviewFlag(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return ["GREEN", "YELLOW", "RED"].includes(normalized) ? normalized : "";
+}
+
+function countReviewFlags(lineItems) {
+  return lineItems.reduce(
+    (counts, item) => {
+      const key = String(item.reviewFlag || "").toLowerCase();
+
+      if (key === "green" || key === "yellow" || key === "red") {
+        counts[key] += 1;
+      }
+
+      return counts;
+    },
+    { green: 0, yellow: 0, red: 0 }
+  );
+}
+
+function buildQuoteReviewChecklist({ lineItems, terms, risks, language }) {
+  const checklist = [];
+  const redCount = lineItems.filter((item) => item.reviewFlag === "RED").length;
+  const yellowCount = lineItems.filter((item) => item.reviewFlag === "YELLOW").length;
+  const leadTime = String(terms?.leadTime || "");
+  const paymentTerms = String(terms?.paymentTerms || "");
+
+  if (redCount > 0) {
+    checklist.push(
+      explain(language, `${redCount} line(s) are RED and require manual pricing before approval.`)
+    );
+  }
+
+  if (yellowCount > 0) {
+    checklist.push(
+      explain(language, `${yellowCount} line(s) are YELLOW and should be reviewed before sending.`)
+    );
+  }
+
+  if (!leadTime || /to be confirmed|待确认/i.test(leadTime)) {
+    checklist.push(explain(language, "Lead time is not confirmed. Verify delivery before sending."));
+  }
+
+  if (!paymentTerms || /to be confirmed|待确认/i.test(paymentTerms)) {
+    checklist.push(explain(language, "Payment terms are not confirmed. Align commercial terms before approval."));
+  }
+
+  if ((risks || []).length) {
+    checklist.push(explain(language, "Review the listed commercial and technical risks before issuing the quote."));
+  }
+
+  if (!checklist.length) {
+    checklist.push(explain(language, "Review all line items and confirm pricing is acceptable before sending."));
+  }
+
+  return unique(checklist).slice(0, 6);
+}
+
+function calculateBlendedMarginPct(lineItems) {
+  const pricedLines = lineItems.filter((item) => Number(item.baseUnitPrice) > 0 && Number(item.finalPrice ?? item.unitPrice) > 0);
+
+  if (!pricedLines.length) {
+    return 0;
+  }
+
+  const baseTotal = pricedLines.reduce((sum, item) => sum + roundCurrency(Number(item.baseUnitPrice || 0) * Number(item.quantityValue || 0)), 0);
+  const finalTotal = pricedLines.reduce(
+    (sum, item) => sum + roundCurrency(Number(item.finalPrice ?? item.unitPrice ?? 0) * Number(item.quantityValue || 0)),
+    0
+  );
+
+  if (finalTotal <= 0 || baseTotal <= 0 || finalTotal <= baseTotal) {
+    return 0;
+  }
+
+  return roundCurrency(((finalTotal - baseTotal) / finalTotal) * 100);
+}
+
+function toNullableNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const numeric =
+    typeof value === "number"
+      ? value
+      : Number.parseFloat(String(value).replace(/[^0-9.-]+/g, ""));
+
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function normalizeCharges(charges, language) {

@@ -1608,6 +1608,52 @@ td.case-table__actions .button { display: inline-flex; }
 .quote-builder-table .text-input--table {
   min-width: 0;
 }
+.quote-flag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 54px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.quote-flag--green {
+  background: #DCFCE7;
+  color: #166534;
+}
+.quote-flag--yellow {
+  background: #FEF3C7;
+  color: #92400E;
+}
+.quote-flag--red {
+  background: #FEE2E2;
+  color: #B91C1C;
+}
+.text-input--flag-green {
+  background: #F0FDF4;
+}
+.text-input--flag-yellow {
+  background: #FFFBEB;
+}
+.text-input--flag-red {
+  background: #FEF2F2;
+}
+.flag-mix {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.outcome-card {
+  display: grid;
+  gap: 14px;
+}
+.outcome-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 
 .quote-charge-list { display: grid; gap: 7px; }
 .quote-summary-actions { margin-top: 10px; }

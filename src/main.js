@@ -1,13 +1,18 @@
 import { renderApp } from "./app.js";
 import {
+  approveQuote,
   compareKnowledge,
   createCaseFromIntake,
   deleteCase as deleteCaseRequest,
+  fetchDashboardStats,
   fetchCase,
   fetchCases,
   fetchKnowledgeBase,
   fetchKnowledgeFile,
+  fetchPendingOutcomes,
   fetchSystemStatus,
+  logQuoteOutcome,
+  markQuoteSent,
   createQuoteSnapshot,
   generateQuoteEmail,
   generateQuoteEstimate,
@@ -114,6 +119,15 @@ const state = {
     emailLoading: false,
     emailDraft: null,
     sendFeedback: "",
+  },
+  outcomes: {
+    items: [],
+    forms: {},
+    loading: false,
+  },
+  dashboard: {
+    stats: null,
+    loading: false,
   },
 };
 
@@ -253,6 +267,51 @@ root.addEventListener("click", async (event) => {
     if (action === "open-knowledge-picker") {
       event.preventDefault();
       root.querySelector("#knowledge-file-input")?.click();
+      return;
+    }
+
+    if (action === "open-quote") {
+      event.preventDefault();
+      const caseId = target.dataset.caseId || "";
+      if (caseId) {
+        state.quote.selectedCaseId = caseId;
+        state.quote.selectedCase = withProductItems(await loadCaseDetail(caseId));
+        state.quote.emailDraft = state.quote.selectedCase.quoteEmailDraft || null;
+      }
+      window.location.hash = "#/quote";
+      mount();
+      return;
+    }
+
+    if (action === "approve-all-green") {
+      event.preventDefault();
+      applyGreenLineDefaults();
+      mount();
+      return;
+    }
+
+    if (action === "approve-quote") {
+      event.preventDefault();
+      await approveCurrentQuote();
+      return;
+    }
+
+    if (action === "mark-quote-sent") {
+      event.preventDefault();
+      await markCurrentQuoteSent();
+      return;
+    }
+
+    if (action === "set-outcome-result") {
+      event.preventDefault();
+      setOutcomeFormValue(target.dataset.caseId, "result", target.dataset.outcomeResult || "");
+      mount();
+      return;
+    }
+
+    if (action === "submit-outcome") {
+      event.preventDefault();
+      await submitOutcome(target.dataset.caseId);
       return;
     }
 
@@ -552,6 +611,30 @@ root.addEventListener("change", async (event) => {
       return;
     }
 
+    if (target.matches("[data-quote-line-final-price]") && state.quote.selectedCase) {
+      const quoteEstimate = ensureQuoteEstimate(state.quote.selectedCase);
+      const lineItems = (quoteEstimate.lineItems || []).map((item) =>
+        item.lineId === target.dataset.lineId
+          ? {
+              ...item,
+              finalPrice: target.value,
+              humanReviewed: true,
+            }
+          : item
+      );
+
+      const response = await updateCase(state.quote.selectedCase.caseId, {
+        quoteEstimate: {
+          ...quoteEstimate,
+          lineItems,
+        },
+      });
+
+      syncUpdatedCase(response.case);
+      mount();
+      return;
+    }
+
     if (target.matches("[data-case-status]") && state.selectedCase) {
       const response = await updateCase(state.selectedCase.caseId, {
         status: target.value,
@@ -594,6 +677,11 @@ root.addEventListener("input", (event) => {
 
   if (target.id === "login-password") {
     state.auth.password = target.value;
+    return;
+  }
+
+  if (target.matches("[data-outcome-field]")) {
+    setOutcomeFormValue(target.dataset.caseId, target.dataset.outcomeField, target.value);
   }
 });
 
@@ -605,6 +693,8 @@ async function syncRouteData() {
   const needsCaseData =
     window.location.hash === "#/case" ||
     window.location.hash === "#/knowledge" ||
+    window.location.hash === "#/outcomes" ||
+    window.location.hash === "#/dashboard" ||
     window.location.hash === "#/quote" ||
     !window.location.hash;
 
@@ -626,6 +716,20 @@ async function syncRouteData() {
         const knowledgeResponse = await fetchKnowledgeBase();
         state.knowledge.files = knowledgeResponse.knowledgeFiles;
         state.knowledge.categories = knowledgeResponse.categories;
+      }
+
+      if (window.location.hash === "#/outcomes") {
+        state.outcomes.loading = true;
+        const response = await fetchPendingOutcomes();
+        state.outcomes.items = response.items;
+        state.outcomes.loading = false;
+      }
+
+      if (window.location.hash === "#/dashboard") {
+        state.dashboard.loading = true;
+        const response = await fetchDashboardStats();
+        state.dashboard.stats = response.stats;
+        state.dashboard.loading = false;
       }
 
       if (window.location.hash === "#/quote" && state.quote.selectedCaseId) {
@@ -994,6 +1098,117 @@ async function saveQuoteSnapshot() {
   mount();
 }
 
+function applyGreenLineDefaults() {
+  if (!state.quote.selectedCase) {
+    return;
+  }
+
+  const quoteEstimate = ensureQuoteEstimate(state.quote.selectedCase);
+  const lineItems = (quoteEstimate.lineItems || []).map((item) =>
+    item.reviewFlag === "GREEN"
+      ? {
+          ...item,
+          finalPrice: item.finalPrice ?? item.unitPrice,
+          humanReviewed: true,
+        }
+      : item
+  );
+
+  state.quote.selectedCase = {
+    ...state.quote.selectedCase,
+    quoteEstimate: {
+      ...quoteEstimate,
+      lineItems,
+    },
+  };
+}
+
+async function approveCurrentQuote() {
+  if (!state.quote.selectedCase) {
+    return;
+  }
+
+  state.error = "";
+  state.quote.sendFeedback = "";
+  mount();
+
+  const response = await approveQuote(
+    state.quote.selectedCase.caseId,
+    ensureQuoteEstimate(state.quote.selectedCase),
+    state.language,
+    state.quote.selectedCase || state.selectedCase || null
+  );
+
+  syncUpdatedCase(response.case);
+  state.quote.sendFeedback =
+    state.language === "zh" ? "报价已批准，可继续发送与跟进。" : "Quote approved. It is ready to send and track.";
+  mount();
+}
+
+async function markCurrentQuoteSent() {
+  if (!state.quote.selectedCase) {
+    return;
+  }
+
+  state.error = "";
+  state.quote.sendFeedback = "";
+  mount();
+
+  const response = await markQuoteSent(
+    state.quote.selectedCase.caseId,
+    ensureQuoteEstimate(state.quote.selectedCase),
+    state.language,
+    state.quote.selectedCase || state.selectedCase || null
+  );
+
+  syncUpdatedCase(response.case);
+  state.quote.sendFeedback =
+    state.language === "zh" ? "报价已标记为已发送，系统会提醒你跟进结果。" : "Quote marked as sent. Follow-up tracking is now active.";
+  mount();
+}
+
+function setOutcomeFormValue(caseId, field, value) {
+  if (!caseId || !field) {
+    return;
+  }
+
+  state.outcomes.forms[caseId] = {
+    ...(state.outcomes.forms[caseId] || { result: "", finalPrice: "", lossReason: "", competitorPrice: "" }),
+    [field]: value,
+  };
+}
+
+async function submitOutcome(caseId) {
+  const form = state.outcomes.forms[caseId] || {};
+  if (!form.result) {
+    return;
+  }
+
+  state.error = "";
+  mount();
+
+  const payload = {
+    caseId,
+    result: form.result,
+    finalPrice: form.finalPrice,
+    lossReason: form.lossReason,
+    competitorPrice: form.competitorPrice,
+    actor: state.auth.user?.email || "user",
+  };
+
+  const response = await logQuoteOutcome(payload);
+  syncUpdatedCase(response.case);
+  state.outcomes.items = state.outcomes.items.filter((item) => item.caseId !== caseId);
+  delete state.outcomes.forms[caseId];
+
+  if (window.location.hash === "#/dashboard") {
+    const statsResponse = await fetchDashboardStats();
+    state.dashboard.stats = statsResponse.stats;
+  }
+
+  mount();
+}
+
 function sendQuoteEmail() {
   const emailDraft = state.quote.emailDraft;
 
@@ -1272,6 +1487,15 @@ function buildCaseSummary(caseRecord) {
     quantity: primaryProduct?.quantity || normalizedCase.extractedFields.find((field) => field.fieldName === "Quantity")?.value || "",
     productItems: normalizedCase.productItems,
     knowledgeStatus: normalizedCase.knowledgeComparison?.recommendedStatus || "",
+    quoteLifecycle: normalizedCase.quoteLifecycle || null,
+    quoteSummary: normalizedCase.quoteEstimate
+      ? {
+          total: Number(normalizedCase.quoteEstimate.total || 0),
+          currency: normalizedCase.quoteEstimate.currency || "USD",
+          flagCounts: normalizedCase.quoteEstimate.flagCounts || { green: 0, yellow: 0, red: 0 },
+          blendedMarginPct: Number(normalizedCase.quoteEstimate.blendedMarginPct || 0),
+        }
+      : null,
   };
 }
 
@@ -1491,6 +1715,9 @@ function clearWorkspaceState() {
   state.quote.selectedCaseId = null;
   state.quote.selectedCase = null;
   state.knowledge.files = [];
+  state.outcomes.items = [];
+  state.outcomes.forms = {};
+  state.dashboard.stats = null;
 }
 
 function shouldBlockProtectedRoutes() {

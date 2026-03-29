@@ -62,6 +62,78 @@ test("delete case route removes a stored case", async () => {
   assert.equal(JSON.parse(response.body).deletedCaseId, "QC-DELETE");
 });
 
+test("quote approval route blocks red lines without final prices", async () => {
+  __resetStoreForTests();
+  await saveCase({
+    caseId: "QC-APPROVAL",
+    createdAt: "2026-03-29",
+    updatedAt: "2026-03-29",
+    customerName: "Acme",
+    projectName: "Pilot",
+    productItems: [{ productId: "product-1", label: "Pipe", quantity: "10 pcs" }],
+    quoteEstimate: {
+      currency: "USD",
+      total: 0,
+      lineItems: [
+        {
+          lineId: "line-1",
+          productId: "product-1",
+          productLabel: "Pipe",
+          quantityText: "10 pcs",
+          quantityValue: 10,
+          quantityUnit: "pcs",
+          unitPrice: 0,
+          finalPrice: null,
+          reviewFlag: "RED",
+        },
+      ],
+    },
+  });
+
+  const response = await invokeRoute({
+    method: "POST",
+    url: "/api/quote/approve",
+    headers: { "content-type": "application/json" },
+    body: Buffer.from(JSON.stringify({ caseId: "QC-APPROVAL", language: "en" })),
+  });
+
+  assert.equal(response.statusCode, 422);
+  assert.match(JSON.parse(response.body).error, /approval blocked/i);
+});
+
+test("dashboard stats route returns JSON insight payload", async () => {
+  __resetStoreForTests();
+  await saveCase({
+    caseId: "QC-DASH",
+    createdAt: "2026-03-20",
+    updatedAt: "2026-03-29",
+    customerName: "Acme",
+    projectName: "Pilot",
+    quoteEstimate: {
+      currency: "USD",
+      total: 12500,
+      blendedMarginPct: 18.4,
+      lineItems: [{ reviewFlag: "GREEN" }, { reviewFlag: "YELLOW" }],
+    },
+    quoteLifecycle: {
+      status: "sent",
+      sentAt: "2026-03-28T10:00:00.000Z",
+      followUpDue: "2026-03-29T10:00:00.000Z",
+    },
+  });
+
+  const response = await invokeRoute({
+    method: "GET",
+    url: "/api/dashboard/stats",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(String(response.headers["content-type"] || ""), /application\/json/i);
+  const payload = JSON.parse(response.body);
+  assert.equal(typeof payload.stats.pendingFollowUps, "number");
+  assert.ok(Array.isArray(payload.stats.topCustomers));
+});
+
 async function invokeRoute({ method, url, headers = {}, body = Buffer.alloc(0) }) {
   const req = Readable.from(body);
   req.method = method;

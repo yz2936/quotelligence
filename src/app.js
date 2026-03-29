@@ -11,6 +11,8 @@ const routes = {
   "#/case": renderCaseWorkspace,
   "#/knowledge": renderKnowledgeComparison,
   "#/quote": renderQuoteWorkspace,
+  "#/outcomes": renderOutcomesPage,
+  "#/dashboard": renderDashboardPage,
 };
 
 export function renderApp(root, state, currentHash) {
@@ -54,6 +56,8 @@ export function renderApp(root, state, currentHash) {
           ${renderNavLink("#/case", t(language, "caseWorkspace"), activeRoute, svgCaseIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/knowledge", t(language, "knowledgeLibraryNav"), activeRoute, svgKnowledgeIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/quote", t(language, "quoteBuilderNav"), activeRoute, svgQuoteIcon(), state.sidebarCollapsed)}
+          ${renderNavLink("#/outcomes", t(language, "outcomesNav"), activeRoute, svgOutcomeIcon(), state.sidebarCollapsed)}
+          ${renderNavLink("#/dashboard", t(language, "dashboardNav"), activeRoute, svgDashboardIcon(), state.sidebarCollapsed)}
         </nav>
         <section class="sidebar__panel">
           <p class="eyebrow">${t(language, "latestCase")}</p>
@@ -191,6 +195,14 @@ function svgQuoteIcon() {
   return `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M9.5 1.5H3a1 1 0 00-1 1v10a1 1 0 001 1h9a1 1 0 001-1V5.5L9.5 1.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M9.5 1.5V5.5H13.5M5 8.5h5M5 11h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
+function svgOutcomeIcon() {
+  return `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 12.5h11M3.5 10l2.5-2.5 2 2 3.5-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function svgDashboardIcon() {
+  return `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2.5 12.5V8.5M7.5 12.5V4.5M12.5 12.5V6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M1.5 12.5h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+}
+
 function renderIntakeScreen(state) {
   const language = state.language;
   const canParse = state.intakeDraft.files.length > 0 || state.intakeDraft.emailText.trim().length > 0;
@@ -315,6 +327,9 @@ function renderCaseTable(state) {
             <th>${t(language, "product")}</th>
             <th>${t(language, "material")}</th>
             <th>${t(language, "quantity")}</th>
+            <th>${t(language, "quoteStage")}</th>
+            <th>${t(language, "flagMix")}</th>
+            <th>${t(language, "total")}</th>
             <th>${t(language, "status")}</th>
             <th>${t(language, "updatedCol")}</th>
             <th></th>
@@ -355,12 +370,16 @@ function renderCaseTable(state) {
                   </td>
                   <td class="case-table__cell case-table__cell--compact">${escapeHtml(activeProduct?.materialGrade || entry.material || "Not clearly stated")}</td>
                   <td class="case-table__cell case-table__cell--compact">${escapeHtml(activeProduct?.quantity || entry.quantity || "Not clearly stated")}</td>
+                  <td>${escapeHtml(formatQuoteStage(entry.quoteLifecycle, language))}</td>
+                  <td>${renderFlagMix(entry.quoteSummary?.flagCounts || null)}</td>
+                  <td>${entry.quoteSummary ? formatMoneyValue(entry.quoteSummary.currency || "USD", entry.quoteSummary.total) : "—"}</td>
                   <td>${renderStatusBadge(entry.status, language)}</td>
                   <td>${entry.updatedAt}</td>
                   <td class="case-table__actions">
                     <button class="button button--small" data-action="open-case" data-case-id="${entry.caseId}">
                       ${t(language, "caseDetail")}
                     </button>
+                    ${entry.quoteSummary ? `<button class="button button--small button--secondary" data-action="open-quote" data-case-id="${entry.caseId}">${t(language, "reviewQuote")}</button>` : ""}
                     <button class="button button--secondary button--small" data-action="delete-case" data-case-id="${entry.caseId}">
                       ${t(language, "deleteCase")}
                     </button>
@@ -809,6 +828,7 @@ function buildCoverageSummary(comparison, language) {
 
 function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
   const quoteEstimate = caseData?.quoteEstimate;
+  const quoteLifecycle = caseData?.quoteLifecycle || null;
 
   if (!caseData || !quoteEstimate) {
     return `<p class="muted">${t(language, "quoteBuilderEmpty")}</p>`;
@@ -821,6 +841,7 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
           <p class="eyebrow">${t(language, "pricingStatus")}</p>
           <h3>${escapeHtml(quoteEstimate.pricingStatus)}</h3>
           <p>${escapeHtml(quoteEstimate.summary)}</p>
+          <p class="muted">${t(language, "quoteStage")}: ${escapeHtml(formatQuoteStage(quoteLifecycle, language))}</p>
         </article>
         <article class="summary-card">
           <label class="form-label" for="quote-currency">${t(language, "currency")}</label>
@@ -829,6 +850,30 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
           <input id="quote-incoterm" class="text-input" type="text" value="${escapeAttribute(quoteEstimate.incoterm || "")}" data-quote-header="incoterm" />
         </article>
       </div>
+      <div class="summary-card">
+        <div class="result-card__header">
+          <div>
+            <p class="eyebrow">${t(language, "reviewActionsTitle")}</p>
+            <h3>${t(language, "reviewActionsDescription")}</h3>
+          </div>
+          <div class="case-table__actions">
+            <button class="button button--secondary" data-action="approve-all-green">${t(language, "approveAllGreen")}</button>
+            <button class="button" data-action="approve-quote">${t(language, "approveQuoteCta")}</button>
+            <button class="button button--secondary" data-action="mark-quote-sent">${t(language, "markQuoteSent")}</button>
+          </div>
+        </div>
+        <div class="summary-structure">
+          <div>
+            <p class="eyebrow">${t(language, "reviewChecklistTitle")}</p>
+            ${renderTagList(quoteEstimate.reviewChecklist || [], language)}
+          </div>
+          <div>
+            <p class="eyebrow">${t(language, "flagMix")}</p>
+            <p>${renderInlineFlagMix(quoteEstimate.flagCounts || {})}</p>
+            <p class="muted">${t(language, "blendedMarginLabel")}: ${Number(quoteEstimate.blendedMarginPct || 0).toFixed(2)}%</p>
+          </div>
+        </div>
+      </div>
       ${quoteEstimate.decisionRecommendation ? renderDecisionPanel(quoteEstimate.decisionRecommendation, quoteEstimate.currency, language) : ""}
       <div class="table-shell">
         <table class="case-table quote-builder-table">
@@ -836,9 +881,11 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
             <tr>
               <th>${t(language, "product")}</th>
               <th>${t(language, "quantity")}</th>
+              <th>${t(language, "reviewFlag")}</th>
               <th>${t(language, "baseUnitPrice")}</th>
               <th>${t(language, "adjustmentAmount")}</th>
-              <th>${t(language, "finalUnitPrice")}</th>
+              <th>${t(language, "suggestedUnitPrice")}</th>
+              <th>${t(language, "finalReviewPrice")}</th>
               <th>${t(language, "lineTotal")}</th>
               <th>${t(language, "pricingBasis")}</th>
             </tr>
@@ -857,6 +904,10 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
                       <p class="case-table__subtext">${escapeHtml(formatQuantityBasis(item, language))}</p>
                     </td>
                     <td>
+                      <span class="quote-flag quote-flag--${String(item.reviewFlag || "").toLowerCase()}">${escapeHtml(item.reviewFlag || "GREEN")}</span>
+                      <p class="case-table__subtext">${escapeHtml(item.reviewReason || t(language, "noneLabel"))}</p>
+                    </td>
+                    <td>
                       <input class="text-input text-input--table" type="number" step="0.01" value="${escapeAttribute(item.baseUnitPrice)}" data-quote-line-field="baseUnitPrice" data-line-id="${item.lineId}" />
                       <p class="case-table__subtext">${escapeHtml(formatMoneyValue(quoteEstimate.currency, item.baseUnitPrice))} / ${escapeHtml(item.quantityUnit || (language === "zh" ? "单位" : "unit"))}</p>
                     </td>
@@ -864,6 +915,10 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
                       <input class="text-input text-input--table" type="number" step="0.01" value="${escapeAttribute(item.adjustmentAmount)}" data-quote-line-field="adjustmentAmount" data-line-id="${item.lineId}" />
                     </td>
                     <td>${formatMoneyValue(quoteEstimate.currency, item.unitPrice)}</td>
+                    <td>
+                      <input class="text-input text-input--table text-input--flag-${String(item.reviewFlag || "").toLowerCase()}" type="number" step="0.01" value="${escapeAttribute(item.finalPrice ?? "")}" data-quote-line-final-price data-line-id="${item.lineId}" />
+                      <p class="case-table__subtext">${item.humanReviewed ? t(language, "reviewedByHuman") : t(language, "pendingHumanReview")}</p>
+                    </td>
                     <td>
                       ${formatMoneyValue(quoteEstimate.currency, item.lineTotal)}
                       <p class="case-table__subtext">${escapeHtml(formatLineTotalBasis(item, quoteEstimate.currency, language))}</p>
@@ -900,6 +955,7 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
           <p class="eyebrow">${t(language, "quoteTotals")}</p>
           <p>${t(language, "subtotal")}: ${formatMoneyValue(quoteEstimate.currency, quoteEstimate.subtotal)}</p>
           <p>${t(language, "total")}: ${formatMoneyValue(quoteEstimate.currency, quoteEstimate.total)}</p>
+          ${quoteLifecycle?.followUpDue ? `<p class="muted">${t(language, "followUpDueLabel")}: ${escapeHtml(String(quoteLifecycle.followUpDue).slice(0, 10))}</p>` : ""}
           <p class="muted">${t(language, "recommendedNextStep")}: ${escapeHtml(quoteEstimate.recommendedNextStep || t(language, "noneLabel"))}</p>
           <div class="intake-actions quote-summary-actions">
             <button class="button button--secondary" data-action="save-quote-snapshot">${t(language, "saveQuoteVersion")}</button>
@@ -1195,4 +1251,212 @@ function formatLineTotalBasis(item, currency, language) {
   return language === "zh"
     ? `${quantityValue} ${quantityUnit} × ${unitPrice}`
     : `${quantityValue} ${quantityUnit} × ${unitPrice}`;
+}
+
+function renderOutcomesPage(state) {
+  const language = state.language;
+  const items = state.outcomes.items || [];
+
+  return {
+    title: t(language, "outcomesNav"),
+    body: `
+      <div class="content-stack quote-workspace">
+        ${renderSection({
+          title: t(language, "outcomesTitle"),
+          description: t(language, "outcomesDescription"),
+          language,
+          body:
+            items.length
+              ? items
+                  .map((item) => {
+                    const form = state.outcomes.forms[item.caseId] || {};
+                    const result = form.result || "";
+                    return `
+                      <article class="summary-card outcome-card">
+                        <div class="result-card__header">
+                          <div>
+                            <p class="eyebrow">${escapeHtml(item.quoteNumber || item.caseId)}</p>
+                            <h3>${escapeHtml(item.customerName)} • ${escapeHtml(item.projectName || t(language, "noneLabel"))}</h3>
+                            <p class="muted">${t(language, "followUpDueLabel")}: ${escapeHtml(String(item.followUpDue || "").slice(0, 10))} • ${t(language, "daysOverdueLabel")}: ${escapeHtml(String(item.daysOverdue || 0))}</p>
+                          </div>
+                          <div><p>${formatMoneyValue(item.currency || "USD", item.totalValue || 0)}</p></div>
+                        </div>
+                        <div class="outcome-button-row">
+                          ${["won", "lost", "negotiating", "no_response"]
+                            .map(
+                              (entry) => `
+                                <button class="button ${result === entry ? "" : "button--secondary"}" data-action="set-outcome-result" data-case-id="${item.caseId}" data-outcome-result="${entry}">
+                                  ${t(language, `outcome_${entry}`)}
+                                </button>
+                              `
+                            )
+                            .join("")}
+                        </div>
+                        ${
+                          result === "won"
+                            ? `
+                              <label class="form-label">${t(language, "actualFinalPrice")}</label>
+                              <input class="text-input" type="number" step="0.01" value="${escapeAttribute(form.finalPrice || "")}" data-outcome-field="finalPrice" data-case-id="${item.caseId}" />
+                            `
+                            : ""
+                        }
+                        ${
+                          result === "lost"
+                            ? `
+                              <label class="form-label">${t(language, "lossReasonLabel")}</label>
+                              <input class="text-input" type="text" value="${escapeAttribute(form.lossReason || "")}" data-outcome-field="lossReason" data-case-id="${item.caseId}" />
+                              <label class="form-label">${t(language, "competitorPriceLabel")}</label>
+                              <input class="text-input" type="number" step="0.01" value="${escapeAttribute(form.competitorPrice || "")}" data-outcome-field="competitorPrice" data-case-id="${item.caseId}" />
+                            `
+                            : ""
+                        }
+                        <div class="intake-actions">
+                          <button class="button ${result ? "" : "button--disabled"}" data-action="submit-outcome" data-case-id="${item.caseId}" ${result ? "" : "disabled"}>
+                            ${t(language, "submitOutcome")}
+                          </button>
+                        </div>
+                      </article>
+                    `;
+                  })
+                  .join("")
+              : `<div class="state-empty"><p>${t(language, "noPendingOutcomes")}</p></div>`,
+        })}
+      </div>
+    `,
+  };
+}
+
+function renderDashboardPage(state) {
+  const language = state.language;
+  const stats = state.dashboard.stats;
+
+  if (!stats) {
+    return {
+      title: t(language, "dashboardNav"),
+      body: `<div class="summary-card"><p>${t(language, "dashboardLoading")}</p></div>`,
+    };
+  }
+
+  return {
+    title: t(language, "dashboardNav"),
+    body: `
+      <div class="content-stack quote-workspace">
+        ${
+          stats.pendingFollowUps > 0
+            ? `<div class="summary-card"><p><strong>${t(language, "pendingFollowUpsBanner")} ${escapeHtml(String(stats.pendingFollowUps))}</strong></p><p class="muted"><a href="#/outcomes">${t(language, "goToOutcomes")}</a></p></div>`
+            : ""
+        }
+        <div class="content-grid">
+          ${renderMetricCard(t(language, "winRateCard"), `${Number(stats.winRate30d || 0).toFixed(2)}%`)}
+          ${renderMetricCard(t(language, "avgMarginCard"), `${Number(stats.avgMargin30d || 0).toFixed(2)}%`)}
+          ${renderMetricCard(t(language, "quotesSentCard"), String(stats.quotesSent30d || 0))}
+          ${renderMetricCard(t(language, "pendingFollowUpsCard"), String(stats.pendingFollowUps || 0))}
+        </div>
+        <div class="content-grid">
+          <article class="summary-card">
+            <p class="eyebrow">${t(language, "flagDistributionTitle")}</p>
+            <p>${renderInlineFlagMix(stats.flagDistribution90d || {})}</p>
+            <p class="muted">${t(language, "avgTurnaroundCard")}: ${Number(stats.avgTurnaroundHours || 0).toFixed(2)}h</p>
+          </article>
+          <article class="summary-card">
+            <p class="eyebrow">${t(language, "weeklyVolumeTitle")}</p>
+            <div class="table-shell">
+              <table class="case-table quote-history-table">
+                <thead>
+                  <tr>
+                    <th>${t(language, "weekLabel")}</th>
+                    <th>${t(language, "flagMix")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${(stats.quoteVolumeByWeek || [])
+                    .map(
+                      (entry) => `
+                        <tr class="case-table__row">
+                          <td>${escapeHtml(entry.week)}</td>
+                          <td>${renderInlineFlagMix(entry)}</td>
+                        </tr>
+                      `
+                    )
+                    .join("")}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+        <article class="summary-card">
+          <p class="eyebrow">${t(language, "topCustomersTitle")}</p>
+          <div class="table-shell">
+            <table class="case-table quote-history-table">
+              <thead>
+                <tr>
+                  <th>${t(language, "customer")}</th>
+                  <th>${t(language, "quotesSentCard")}</th>
+                  <th>${t(language, "total")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${(stats.topCustomers || [])
+                  .map(
+                    (entry) => `
+                      <tr class="case-table__row">
+                        <td>${escapeHtml(entry.customerName)}</td>
+                        <td>${escapeHtml(String(entry.quoteCount || 0))}</td>
+                        <td>${formatMoneyValue("USD", entry.totalValue || 0)}</td>
+                      </tr>
+                    `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+    `,
+  };
+}
+
+function renderMetricCard(label, value) {
+  return `
+    <article class="summary-card">
+      <p class="eyebrow">${escapeHtml(label)}</p>
+      <h3>${escapeHtml(value)}</h3>
+    </article>
+  `;
+}
+
+function formatQuoteStage(quoteLifecycle, language) {
+  const stage = String(quoteLifecycle?.status || "").trim().toLowerCase();
+
+  if (!stage || stage === "not_started") {
+    return t(language, "quoteNotStarted");
+  }
+
+  const key = {
+    draft: "quoteStageDraft",
+    approved: "quoteStageApproved",
+    sent: "quoteStageSent",
+    won: "quoteStageWon",
+    lost: "quoteStageLost",
+    negotiating: "quoteStageNegotiating",
+    no_response: "quoteStageNoResponse",
+  }[stage];
+
+  return key ? t(language, key) : stage.replace(/_/g, " ");
+}
+
+function renderFlagMix(flagCounts) {
+  return `<span class="flag-mix">${renderInlineFlagMix(flagCounts || {})}</span>`;
+}
+
+function renderInlineFlagMix(flagCounts) {
+  const green = Number(flagCounts.green || 0);
+  const yellow = Number(flagCounts.yellow || 0);
+  const red = Number(flagCounts.red || 0);
+
+  return `
+    <span class="quote-flag quote-flag--green">G ${green}</span>
+    <span class="quote-flag quote-flag--yellow">Y ${yellow}</span>
+    <span class="quote-flag quote-flag--red">R ${red}</span>
+  `;
 }

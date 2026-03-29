@@ -88,6 +88,7 @@ export async function buildCaseFromSubmission({ files, emailText, language = "en
     knowledgeComparison: null,
     quoteEstimate: null,
     quoteEmailDraft: null,
+    quoteLifecycle: null,
     quoteHistory: [],
     workflow: null,
     timeline: [],

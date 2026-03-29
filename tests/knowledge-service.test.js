@@ -160,6 +160,9 @@ test("normalizeStoredQuoteEstimate recalculates totals from editable pricing fie
   assert.equal(normalized.lineItems[0].lineTotal, 550);
   assert.equal(normalized.subtotal, 550);
   assert.equal(normalized.total, 650);
+  assert.equal(normalized.lineItems[0].reviewFlag, "RED");
+  assert.ok(Array.isArray(normalized.reviewChecklist));
+  assert.equal(normalized.flagCounts.red, 1);
 });
 
 test("summarizeKnowledgeFile falls back cleanly when text is missing", async () => {

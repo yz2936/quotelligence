@@ -143,6 +143,30 @@ export async function generateQuoteEstimate(caseId, language, caseSnapshot = nul
   return handleJson(response, { operation: "quote_build" });
 }
 
+export async function approveQuote(caseId, quoteEstimate, language, caseSnapshot = null) {
+  const response = await apiFetch("/api/quote/approve", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ caseId, quoteEstimate, language, caseSnapshot, actor: "user" }),
+  });
+
+  return handleJson(response);
+}
+
+export async function markQuoteSent(caseId, quoteEstimate, language, caseSnapshot = null) {
+  const response = await apiFetch("/api/quote/mark-sent", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ caseId, quoteEstimate, language, caseSnapshot, actor: "user" }),
+  });
+
+  return handleJson(response);
+}
+
 export async function generateQuoteEmail(caseId, quoteEstimate, language, caseSnapshot = null) {
   const response = await apiFetch("/api/quote/email", {
     method: "POST",
@@ -164,6 +188,28 @@ export async function createQuoteSnapshot(caseId, quoteEstimate, language, caseS
     body: JSON.stringify({ caseId, quoteEstimate, language, actor: "user", caseSnapshot }),
   });
 
+  return handleJson(response);
+}
+
+export async function fetchPendingOutcomes() {
+  const response = await apiFetch("/api/outcomes/pending");
+  return handleJson(response);
+}
+
+export async function logQuoteOutcome(payload) {
+  const response = await apiFetch("/api/outcomes", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return handleJson(response);
+}
+
+export async function fetchDashboardStats() {
+  const response = await apiFetch("/api/dashboard/stats");
   return handleJson(response);
 }
 
