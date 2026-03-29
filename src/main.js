@@ -412,18 +412,23 @@ root.addEventListener("change", async (event) => {
       return;
     }
 
-    if (target.matches("[data-quote-case-select]")) {
-      state.quote.selectedCaseId = target.value || null;
-      state.quote.emailDraft = null;
-      state.quote.sendFeedback = "";
+      if (target.matches("[data-quote-case-select]")) {
+        state.quote.selectedCaseId = target.value || null;
+        state.quote.emailDraft = null;
+        state.quote.sendFeedback = "";
 
-      if (state.quote.selectedCaseId) {
-        const caseRecord = await loadCaseDetail(state.quote.selectedCaseId);
-        state.quote.selectedCase = withProductItems(caseRecord);
-        state.quote.emailDraft = caseRecord.quoteEmailDraft || null;
-      } else {
-        state.quote.selectedCase = null;
-      }
+        if (state.quote.selectedCaseId) {
+          if (state.selectedCase?.caseId === state.quote.selectedCaseId) {
+            state.quote.selectedCase = withProductItems(state.selectedCase);
+            state.quote.emailDraft = state.selectedCase.quoteEmailDraft || null;
+          } else {
+            const caseRecord = await loadCaseDetail(state.quote.selectedCaseId);
+            state.quote.selectedCase = withProductItems(caseRecord);
+            state.quote.emailDraft = caseRecord.quoteEmailDraft || null;
+          }
+        } else {
+          state.quote.selectedCase = null;
+        }
 
       mount();
       return;
@@ -886,7 +891,11 @@ async function runKnowledgeComparison() {
   mount();
 
   try {
-    const response = await compareKnowledge(state.quote.selectedCaseId, state.language);
+    const response = await compareKnowledge(
+      state.quote.selectedCaseId,
+      state.language,
+      state.quote.selectedCase || state.selectedCase || null
+    );
     state.knowledge.files = mergeKnowledgeFiles(state.knowledge.files, response.knowledgeFiles);
     syncUpdatedCase(response.case);
   } finally {
@@ -905,7 +914,11 @@ async function runQuoteEstimate() {
   mount();
 
   try {
-    const response = await generateQuoteEstimate(state.quote.selectedCaseId, state.language);
+    const response = await generateQuoteEstimate(
+      state.quote.selectedCaseId,
+      state.language,
+      state.quote.selectedCase || state.selectedCase || null
+    );
     syncUpdatedCase(response.case);
   } finally {
     state.quote.quoteLoading = false;
@@ -1166,6 +1179,14 @@ function mergeKnowledgeFiles(existingFiles, incomingFiles) {
 }
 
 async function loadCaseDetail(caseId) {
+  if (state.selectedCase?.caseId === caseId) {
+    return state.selectedCase;
+  }
+
+  if (state.quote.selectedCase?.caseId === caseId) {
+    return state.quote.selectedCase;
+  }
+
   try {
     const response = await fetchCase(caseId);
     cacheCaseRecord(response.case);

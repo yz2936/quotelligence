@@ -276,7 +276,8 @@ export async function handleRequest(req, res) {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
       const language = String(payload.language || "en");
-      const caseRecord = await getCase(caseId);
+      const caseSnapshot = normalizeCaseSnapshot(payload.caseSnapshot, caseId);
+      const caseRecord = (await getCase(caseId)) || caseSnapshot;
 
       if (!caseRecord) {
         return sendJson(res, 404, { error: "Case not found" });
@@ -314,7 +315,8 @@ export async function handleRequest(req, res) {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
       const language = String(payload.language || "en");
-      const caseRecord = await getCase(caseId);
+      const caseSnapshot = normalizeCaseSnapshot(payload.caseSnapshot, caseId);
+      const caseRecord = (await getCase(caseId)) || caseSnapshot;
 
       if (!caseRecord) {
         return sendJson(res, 404, { error: "Case not found" });
@@ -574,6 +576,18 @@ async function ensureApiAuth(req) {
   }
 
   return authenticateRequest(req);
+}
+
+function normalizeCaseSnapshot(value, expectedCaseId) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  if (String(value.caseId || "") !== String(expectedCaseId || "")) {
+    return null;
+  }
+
+  return value;
 }
 
 function matchKnowledgeFileDetailPath(pathname) {

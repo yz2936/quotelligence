@@ -107,13 +107,13 @@ export async function uploadKnowledgeFiles({ files, language }) {
   return handleJson(response, { files, operation: "knowledge_upload" });
 }
 
-export async function compareKnowledge(caseId, language) {
+export async function compareKnowledge(caseId, language, caseSnapshot = null) {
   const response = await apiFetch("/api/knowledge/compare", {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
-    body: JSON.stringify({ caseId, language }),
+    body: JSON.stringify({ caseId, language, caseSnapshot }),
   });
 
   return handleJson(response);
@@ -131,13 +131,13 @@ export async function summarizeKnowledgeFile(knowledgeFileId, language) {
   return handleJson(response);
 }
 
-export async function generateQuoteEstimate(caseId, language) {
+export async function generateQuoteEstimate(caseId, language, caseSnapshot = null) {
   const response = await apiFetch("/api/quote/build", {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
-    body: JSON.stringify({ caseId, language }),
+    body: JSON.stringify({ caseId, language, caseSnapshot }),
   });
 
   return handleJson(response, { operation: "quote_build" });
