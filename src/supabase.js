@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "../node_modules/@supabase/supabase-js/dist/index.mjs";
 
 let supabaseClient = null;
 let supabaseConfigKey = "";
