@@ -78,7 +78,7 @@ export function renderApp(root, state, currentHash) {
           </div>
         </header>
         ${state.error ? `<div class="error-banner">${state.error}</div>` : ""}
-        <section class="screen-content ${state.analyst.open ? "screen-content--with-analyst" : ""}">
+        <section class="screen-content ${state.analyst.open ? "screen-content--with-analyst" : ""} ${state.ui?.animateRouteChange ? "screen-content--animated" : ""}">
           ${screen.body}
         </section>
         ${state.analyst.open ? renderAnalystWindow(state) : ""}

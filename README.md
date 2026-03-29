@@ -66,25 +66,25 @@ This project can be deployed to Vercel with:
 ### Required environment variables
 
 - `OPENAI_API_KEY`
+- `DATABASE_URL`
 
 `PORT` is only used for local development. Vercel ignores it.
 
-### Important deployment limitation
+### Persistence behavior
 
-The current app stores cases and uploaded knowledge files in a JSON file under `/tmp` via [`server/store.js`](./server/store.js). That is more stable than pure in-memory storage, but on Vercel it still means:
+- If `DATABASE_URL` is set, [`server/store.js`](./server/store.js) uses Postgres and creates the required `cases` and `knowledge_files` tables automatically.
+- If `DATABASE_URL` is not set, the app falls back to the local JSON file store under `/tmp` for development only.
 
-- data is not truly durable
-- uploads and generated state can disappear across cold starts, instance changes, or deployments
-- this setup is suitable for demos, not production persistence
+For Vercel or any real deployment, set `DATABASE_URL`. Without it, uploads and generated state can still disappear across cold starts, instance changes, or deployments.
 
 ### Vercel setup steps
 
 1. Import the GitHub repository into Vercel.
 2. Leave the framework preset as `Other`.
 3. Do not set a build command.
-4. Add the `OPENAI_API_KEY` environment variable in the Vercel project settings.
+4. Add the `OPENAI_API_KEY` and `DATABASE_URL` environment variables in the Vercel project settings.
 5. Deploy.
 
-### Before using this in production
+### Recommended database
 
-Replace the `/tmp`-backed store with persistent storage, for example Postgres, Vercel KV, or another database/blob store for case data and uploaded file metadata.
+Use a hosted Postgres database, for example Vercel Postgres, Neon, Supabase, or another provider that gives you a standard Postgres connection string.

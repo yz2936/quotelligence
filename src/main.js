@@ -88,12 +88,21 @@ const state = {
 
 resetIdleIntakeMessage();
 
-function mount() {
-  renderApp(root, state, window.location.hash || "#/intake");
+function mount(options = {}) {
+  renderApp(
+    root,
+    {
+      ...state,
+      ui: {
+        animateRouteChange: Boolean(options.animateRouteChange),
+      },
+    },
+    window.location.hash || "#/intake"
+  );
 }
 
 window.addEventListener("hashchange", async () => {
-  mount();
+  mount({ animateRouteChange: true });
   try {
     await syncRouteData();
   } catch (error) {
@@ -502,7 +511,7 @@ try {
 } catch (error) {
   state.error = error instanceof Error ? error.message : String(error);
 }
-mount();
+mount({ animateRouteChange: true });
 
 async function syncRouteData() {
   await syncSystemStatus();

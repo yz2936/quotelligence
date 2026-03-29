@@ -1702,7 +1702,7 @@ td.case-table__actions .button { display: inline-flex; }
 }
 
 /* ── Page entrance animation ────────────────────────────── */
-.screen-content {
+.screen-content--animated {
   animation: screenIn 220ms var(--ease) forwards;
 }
 
