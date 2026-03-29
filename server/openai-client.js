@@ -197,7 +197,7 @@ export async function extractPdfTextWithOpenAI({ fileName, buffer, language = "e
   return outputText;
 }
 
-export async function answerWorkspaceQuestion({ question, cases, language = "en" }) {
+export async function answerWorkspaceQuestion({ question, cases, knowledgeFiles = [], language = "en" }) {
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
@@ -215,7 +215,9 @@ export async function answerWorkspaceQuestion({ question, cases, language = "en"
       instructions:
         [
           "You are an enterprise workspace analyst.",
-          "Answer only from the supplied case data.",
+          "Answer only from the supplied case data and uploaded knowledge files.",
+          "For Excel or workbook uploads, read the workbook tab names, columns, and sample rows before answering.",
+          "If the question asks for tab-level insights, organize the answer by sheet.",
           "If data is insufficient, say so clearly.",
           "Be concise and factual.",
           "When doing counts or time-based summaries, explain the basis briefly.",
@@ -232,6 +234,9 @@ export async function answerWorkspaceQuestion({ question, cases, language = "en"
                 "",
                 "CASE DATA:",
                 buildWorkspaceCaseContext(cases),
+                "",
+                "KNOWLEDGE FILES:",
+                buildKnowledgeLibraryContext(knowledgeFiles),
               ].join("\n"),
             },
           ],
@@ -701,6 +706,12 @@ export function buildKnowledgeLibraryContext(knowledgeFiles, options = {}) {
         category: file.category,
         summary: file.summary,
         extracted_text: String(file.extractedText || "").slice(0, maxExtractedTextChars),
+        workbook_tabs: (file.workbookPreview?.sheets || []).map((sheet) => ({
+          sheet_name: sheet.sheetName,
+          row_count: sheet.rowCount,
+          columns: sheet.columns || [],
+          sample_rows: sheet.sampleRows || [],
+        })),
       })
     )
     .join("\n");

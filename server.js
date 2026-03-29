@@ -263,10 +263,12 @@ export async function handleRequest(req, res) {
       }
 
       const cases = await listCases();
+      const knowledgeFiles = await listKnowledgeFiles();
 
       const answer = await answerWorkspaceQuestion({
         question,
         cases,
+        knowledgeFiles,
         language,
       });
 
@@ -777,6 +779,7 @@ function detailKnowledgeFile(file) {
     ...summarizeKnowledgeFileRecord(file),
     previewText: String(file.extractedText || "").slice(0, 6000),
     previewAvailable: Boolean(file.extractedText),
+    workbookPreview: file.workbookPreview || null,
   };
 }
 

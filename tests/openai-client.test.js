@@ -272,10 +272,22 @@ test("buildKnowledgeLibraryContext includes category and summary", () => {
       category: "Pricing Tool",
       summary: "Pricing Tool: USD 1250 per ton",
       extractedText: "USD 1250 per ton for ASTM A312 TP316L pipe",
+      workbookPreview: {
+        sheets: [
+          {
+            sheetName: "Pricing",
+            rowCount: 2,
+            columns: ["Material Grade", "Unit Price"],
+            sampleRows: [{ "Material Grade": "ASTM A312 TP316L", "Unit Price": "1250" }],
+          },
+        ],
+      },
     },
   ]);
 
   assert.match(context, /Pricing Tool/);
   assert.match(context, /pricing-sheet\.txt/);
   assert.match(context, /USD 1250/);
+  assert.match(context, /Pricing/);
+  assert.match(context, /Material Grade/);
 });

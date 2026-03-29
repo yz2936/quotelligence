@@ -339,6 +339,8 @@ test("buildKnowledgeFilesFromUpload recognizes a quote decision workbook from xl
 
   assert.equal(uploaded[0].category, "Quote Decision Workbook");
   assert.equal(uploaded[0].decisionWorkbook.counts.historical_orders, 1);
+  assert.equal(uploaded[0].workbookPreview.sheets[0].sheetName, "Historical_Orders");
+  assert.equal(uploaded[0].workbookPreview.sheets[0].rowCount, 1);
   assert.match(uploaded[0].summary, /quote decision workbook/i);
 
   await fs.rm(tempDir, { recursive: true, force: true });

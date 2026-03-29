@@ -255,6 +255,7 @@ async function normalizeKnowledgeFile(file, index, now, language) {
     type,
     buffer,
   });
+  const workbookPreview = buildWorkbookPreview(workbook);
   const decisionWorkbook = workbook
     ? normalizeDecisionWorkbook({
         workbook,
@@ -266,6 +267,7 @@ async function normalizeKnowledgeFile(file, index, now, language) {
     name,
     type,
     extractedText,
+    workbookPreview,
     decisionWorkbook,
     textReadable,
     language,
@@ -279,6 +281,7 @@ async function normalizeKnowledgeFile(file, index, now, language) {
     summary: metadata.summary,
     uploadedAt: now.toISOString(),
     extractedText: textReadable ? extractedText : "",
+    workbookPreview,
     decisionWorkbook,
   };
 }
@@ -845,14 +848,21 @@ function formatMoneyRange(currency, low, high) {
   return `${formatMoney(currency, low)} - ${formatMoney(currency, high)}`;
 }
 
-async function buildKnowledgeMetadata({ name, type, extractedText, decisionWorkbook, textReadable, language }) {
+async function buildKnowledgeMetadata({ name, type, extractedText, workbookPreview, decisionWorkbook, textReadable, language }) {
   if (decisionWorkbook) {
     return {
       category: "Quote Decision Workbook",
       summary:
         language === "zh"
-          ? `已识别为报价决策工作簿，包含 ${summarizeDecisionWorkbook(decisionWorkbook)}。`
-          : `Detected quote decision workbook with ${summarizeDecisionWorkbook(decisionWorkbook)}.`,
+          ? `已识别为报价决策工作簿，包含 ${summarizeDecisionWorkbook(decisionWorkbook)}。${summarizeWorkbookPreview(workbookPreview, language)}`
+          : `Detected quote decision workbook with ${summarizeDecisionWorkbook(decisionWorkbook)}. ${summarizeWorkbookPreview(workbookPreview, language)}`,
+    };
+  }
+
+  if (workbookPreview?.sheets?.length) {
+    return {
+      category: classifyKnowledgeFile(name, extractedText),
+      summary: summarizeWorkbookPreview(workbookPreview, language),
     };
   }
 
@@ -913,6 +923,31 @@ function summarizeDecisionWorkbook(decisionWorkbook) {
     `${counts.workcenters || 0} workcenters`,
     `${counts.customers || 0} customers`,
   ].join(", ");
+}
+
+function buildWorkbookPreview(workbook) {
+  if (!workbook?.sheets?.length) {
+    return null;
+  }
+
+  return {
+    fileName: workbook.fileName || "",
+    sheets: workbook.sheets.map((sheet) => ({
+      sheetName: sheet.sheetName,
+      rowCount: Array.isArray(sheet.rows) ? sheet.rows.length : 0,
+      columns: Object.keys(sheet.rows?.[0] || {}).slice(0, 12),
+      sampleRows: (sheet.rows || []).slice(0, 5),
+    })),
+  };
+}
+
+function summarizeWorkbookPreview(workbookPreview, language) {
+  if (!workbookPreview?.sheets?.length) {
+    return language === "zh" ? "未识别到可用工作表。" : "No readable workbook tabs were detected.";
+  }
+
+  const summary = workbookPreview.sheets.map((sheet) => `${sheet.sheetName} (${sheet.rowCount})`).join(", ");
+  return language === "zh" ? `已解析工作簿标签页：${summary}。` : `Parsed workbook tabs: ${summary}.`;
 }
 
 function mapFields(extractedFields) {

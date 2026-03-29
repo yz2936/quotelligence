@@ -798,6 +798,39 @@ function renderKnowledgePreviewModal(knowledgeFile, language) {
             <p class="eyebrow">${t(language, "documentSummary")}</p>
             <p>${escapeHtml(knowledgeFile.summary || t(language, "noneLabel"))}</p>
           </div>
+          ${
+            knowledgeFile.workbookPreview?.sheets?.length
+              ? `
+                <div class="summary-card">
+                  <p class="eyebrow">${language === "zh" ? "工作簿标签页" : "Workbook Tabs"}</p>
+                  <div class="table-shell">
+                    <table class="case-table">
+                      <thead>
+                        <tr>
+                          <th>${language === "zh" ? "标签页" : "Sheet"}</th>
+                          <th>${language === "zh" ? "行数" : "Rows"}</th>
+                          <th>${language === "zh" ? "列" : "Columns"}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${knowledgeFile.workbookPreview.sheets
+                          .map(
+                            (sheet) => `
+                              <tr class="case-table__row">
+                                <td><strong>${escapeHtml(sheet.sheetName)}</strong></td>
+                                <td>${escapeHtml(String(sheet.rowCount || 0))}</td>
+                                <td>${escapeHtml((sheet.columns || []).join(", ") || t(language, "noneLabel"))}</td>
+                              </tr>
+                            `
+                          )
+                          .join("")}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              `
+              : ""
+          }
           <div class="summary-card">
             <p class="eyebrow">${t(language, "documentPreviewText")}</p>
             ${
