@@ -162,10 +162,15 @@ async function handleJson(response) {
 
   if (!contentType.includes("application/json")) {
     const body = await response.text();
-    const looksLikeHtml = body.trim().startsWith("<");
+    const trimmed = body.trim();
+    const looksLikeApiMissing =
+      trimmed.startsWith("<") ||
+      trimmed.startsWith("Cannot ") ||
+      trimmed === "" ||
+      response.status === 404;
     throw new Error(
-      looksLikeHtml
-        ? "Backend API is not available on this preview server. Open the app from the Node server preview instead."
+      looksLikeApiMissing
+        ? "Backend API is not available on this server. Open the app from the Node.js server preview instead of a static file server."
         : "Backend API returned a non-JSON response."
     );
   }
