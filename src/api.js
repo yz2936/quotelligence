@@ -13,7 +13,7 @@ export async function createCaseFromIntake({ files, emailText, language }) {
     body: formData,
   });
 
-  return handleJson(response);
+  return handleJson(response, { files, operation: "rfq_intake" });
 }
 
 export async function fetchCases() {
@@ -94,7 +94,7 @@ export async function uploadKnowledgeFiles({ files, language }) {
     body: formData,
   });
 
-  return handleJson(response);
+  return handleJson(response, { files, operation: "knowledge_upload" });
 }
 
 export async function compareKnowledge(caseId, language) {
@@ -157,22 +157,12 @@ export async function createQuoteSnapshot(caseId, quoteEstimate, language) {
   return handleJson(response);
 }
 
-async function handleJson(response) {
+async function handleJson(response, context = {}) {
   const contentType = response.headers.get("content-type") || "";
 
   if (!contentType.includes("application/json")) {
     const body = await response.text();
-    const trimmed = body.trim();
-    const looksLikeApiMissing =
-      trimmed.startsWith("<") ||
-      trimmed.startsWith("Cannot ") ||
-      trimmed === "" ||
-      response.status === 404;
-    throw new Error(
-      looksLikeApiMissing
-        ? "Backend API is not available on this server. Open the app from the Node.js server preview instead of a static file server."
-        : "Backend API returned a non-JSON response."
-    );
+    throw new Error(inferNonJsonApiError({ body, context, response }));
   }
 
   const payload = await response.json();
@@ -183,3 +173,43 @@ async function handleJson(response) {
 
   return payload;
 }
+
+function inferNonJsonApiError({ body, context, response }) {
+  const trimmed = String(body || "").trim();
+  const lowered = trimmed.toLowerCase();
+  const files = Array.isArray(context.files) ? context.files : [];
+  const hasPdf = files.some((file) => {
+    const name = String(file?.name || "").toLowerCase();
+    const type = String(file?.type || "").toLowerCase();
+    return name.endsWith(".pdf") || type === "application/pdf";
+  });
+
+  if (
+    hasPdf &&
+    (response.status >= 500 ||
+      response.status === 413 ||
+      /payload|too large|entity too large|body exceeded|function invocation failed|internal server error/i.test(trimmed))
+  ) {
+    return "cannot parse PDF";
+  }
+
+  if (response.status === 413 || /payload|too large|entity too large|body exceeded/i.test(trimmed)) {
+    return "Uploaded file is too large for the current deployment.";
+  }
+
+  if (
+    trimmed.startsWith("<") ||
+    trimmed.startsWith("Cannot ") ||
+    trimmed === "" ||
+    response.status === 404 ||
+    lowered.includes("not found")
+  ) {
+    return "Backend API is not available on this server. Open the app from the Node.js server preview instead of a static file server.";
+  }
+
+  return "Backend API returned a non-JSON response.";
+}
+
+export const __apiInternals = {
+  inferNonJsonApiError,
+};
