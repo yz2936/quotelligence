@@ -1645,6 +1645,20 @@ td.case-table__actions .button { display: inline-flex; }
   flex-wrap: wrap;
   gap: 6px;
 }
+.quote-override-pill {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #DBEAFE;
+  color: #1D4ED8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.quote-line-actions {
+  margin-top: 8px;
+}
 .outcome-card {
   display: grid;
   gap: 14px;

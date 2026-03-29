@@ -303,6 +303,32 @@ root.addEventListener("click", async (event) => {
       return;
     }
 
+    if (action === "toggle-line-override" && state.quote.selectedCase) {
+      event.preventDefault();
+      const quoteEstimate = ensureQuoteEstimate(state.quote.selectedCase);
+      const lineItems = (quoteEstimate.lineItems || []).map((item) =>
+        item.lineId === target.dataset.lineId
+          ? {
+              ...item,
+              manualOverride: !item.manualOverride,
+              humanReviewed: true,
+              finalPrice: item.finalPrice ?? item.unitPrice ?? "",
+            }
+          : item
+      );
+
+      const response = await updateCase(state.quote.selectedCase.caseId, {
+        quoteEstimate: {
+          ...quoteEstimate,
+          lineItems,
+        },
+      });
+
+      syncUpdatedCase(response.case);
+      mount();
+      return;
+    }
+
     if (action === "download-quote-pdf") {
       event.preventDefault();
       await downloadCurrentQuotePdf();

@@ -134,6 +134,46 @@ test("dashboard stats route returns JSON insight payload", async () => {
   assert.ok(Array.isArray(payload.stats.topCustomers));
 });
 
+test("quote approval route allows manually overridden red lines with final prices", async () => {
+  __resetStoreForTests();
+  await saveCase({
+    caseId: "QC-OVERRIDE",
+    createdAt: "2026-03-29",
+    updatedAt: "2026-03-29",
+    customerName: "Acme",
+    projectName: "Pilot",
+    productItems: [{ productId: "product-1", label: "Pipe", quantity: "10 pcs" }],
+    quoteEstimate: {
+      currency: "USD",
+      total: 1200,
+      lineItems: [
+        {
+          lineId: "line-1",
+          productId: "product-1",
+          productLabel: "Pipe",
+          quantityText: "10 pcs",
+          quantityValue: 10,
+          quantityUnit: "pcs",
+          unitPrice: 0,
+          finalPrice: 120,
+          reviewFlag: "RED",
+          manualOverride: true,
+        },
+      ],
+    },
+  });
+
+  const response = await invokeRoute({
+    method: "POST",
+    url: "/api/quote/approve",
+    headers: { "content-type": "application/json" },
+    body: Buffer.from(JSON.stringify({ caseId: "QC-OVERRIDE", language: "en" })),
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(JSON.parse(response.body).case.quoteLifecycle.status, "approved");
+});
+
 async function invokeRoute({ method, url, headers = {}, body = Buffer.alloc(0) }) {
   const req = Readable.from(body);
   req.method = method;

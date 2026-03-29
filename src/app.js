@@ -905,6 +905,7 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
                     </td>
                     <td>
                       <span class="quote-flag quote-flag--${String(item.reviewFlag || "").toLowerCase()}">${escapeHtml(item.reviewFlag || "GREEN")}</span>
+                      ${item.manualOverride ? `<span class="quote-override-pill">${t(language, "overrideApplied")}</span>` : ""}
                       <p class="case-table__subtext">${escapeHtml(item.reviewReason || t(language, "noneLabel"))}</p>
                     </td>
                     <td>
@@ -918,6 +919,11 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
                     <td>
                       <input class="text-input text-input--table text-input--flag-${String(item.reviewFlag || "").toLowerCase()}" type="number" step="0.01" value="${escapeAttribute(item.finalPrice ?? "")}" data-quote-line-final-price data-line-id="${item.lineId}" />
                       <p class="case-table__subtext">${item.humanReviewed ? t(language, "reviewedByHuman") : t(language, "pendingHumanReview")}</p>
+                      <div class="case-table__actions quote-line-actions">
+                        <button class="button button--secondary button--small" data-action="toggle-line-override" data-line-id="${item.lineId}">
+                          ${item.manualOverride ? t(language, "removeOverride") : t(language, "overrideLine")}
+                        </button>
+                      </div>
                     </td>
                     <td>
                       ${formatMoneyValue(quoteEstimate.currency, item.lineTotal)}

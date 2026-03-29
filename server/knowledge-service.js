@@ -557,6 +557,7 @@ function recalculateQuoteEstimate(quoteEstimate, caseRecord, language) {
       supportingFiles,
       reviewFlag: reviewState.reviewFlag,
       reviewReason: reviewState.reviewReason,
+      manualOverride: reviewState.manualOverride,
       humanReviewed: Boolean(existing.humanReviewed),
     };
   });
@@ -601,6 +602,7 @@ function recalculateQuoteEstimate(quoteEstimate, caseRecord, language) {
 
 function deriveLineReviewState({ existing, quantity, unitPrice, supportingFiles, pricingBasis }) {
   const explicitFinalPrice = toNullableNumber(existing.finalPrice);
+  const manualOverride = Boolean(existing.manualOverride);
   const reviewFlag = normalizeReviewFlag(existing.reviewFlag) || inferReviewFlag({
     quantity,
     unitPrice,
@@ -610,7 +612,10 @@ function deriveLineReviewState({ existing, quantity, unitPrice, supportingFiles,
 
   return {
     reviewFlag,
-    reviewReason: existing.reviewReason || inferReviewReason(reviewFlag, { quantity, unitPrice, supportingFiles, pricingBasis }),
+    reviewReason:
+      existing.reviewReason ||
+      inferReviewReason(reviewFlag, { quantity, unitPrice, supportingFiles, pricingBasis, manualOverride }),
+    manualOverride,
     finalPrice: explicitFinalPrice ?? (reviewFlag === "RED" ? null : unitPrice),
   };
 }
@@ -633,7 +638,11 @@ function inferReviewFlag({ quantity, unitPrice, supportingFiles, pricingBasis })
   return "GREEN";
 }
 
-function inferReviewReason(reviewFlag, { quantity, unitPrice, supportingFiles, pricingBasis }) {
+function inferReviewReason(reviewFlag, { quantity, unitPrice, supportingFiles, pricingBasis, manualOverride = false }) {
+  if (manualOverride) {
+    return "Manual override applied. User accepted this line without matched inventory evidence.";
+  }
+
   if (reviewFlag === "RED") {
     if (!unitPrice) {
       return "No grounded suggested price is available for this line.";
@@ -687,7 +696,8 @@ function countReviewFlags(lineItems) {
 
 function buildQuoteReviewChecklist({ lineItems, terms, risks, language }) {
   const checklist = [];
-  const redCount = lineItems.filter((item) => item.reviewFlag === "RED").length;
+  const redCount = lineItems.filter((item) => item.reviewFlag === "RED" && !item.manualOverride).length;
+  const overrideCount = lineItems.filter((item) => item.manualOverride).length;
   const yellowCount = lineItems.filter((item) => item.reviewFlag === "YELLOW").length;
   const leadTime = String(terms?.leadTime || "");
   const paymentTerms = String(terms?.paymentTerms || "");
@@ -695,6 +705,12 @@ function buildQuoteReviewChecklist({ lineItems, terms, risks, language }) {
   if (redCount > 0) {
     checklist.push(
       explain(language, `${redCount} line(s) are RED and require manual pricing before approval.`)
+    );
+  }
+
+  if (overrideCount > 0) {
+    checklist.push(
+      explain(language, `${overrideCount} line(s) were manually overridden and should be rechecked before issue.`)
     );
   }
 

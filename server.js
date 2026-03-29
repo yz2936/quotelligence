@@ -862,8 +862,9 @@ function getQuoteApprovalBlockingIssues(quoteEstimate) {
   for (const item of quoteEstimate?.lineItems || []) {
     const finalPrice = Number(item.finalPrice);
     const label = item.productLabel || item.lineId || "Line item";
+    const overridden = Boolean(item.manualOverride);
 
-    if ((item.reviewFlag || "").toUpperCase() === "RED" && !(Number.isFinite(finalPrice) && finalPrice > 0)) {
+    if ((item.reviewFlag || "").toUpperCase() === "RED" && !overridden && !(Number.isFinite(finalPrice) && finalPrice > 0)) {
       issues.push(`${label} is RED and still needs a final price.`);
       continue;
     }
