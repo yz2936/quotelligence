@@ -1,6 +1,7 @@
 const MODEL = "gpt-5.2";
 const PDF_OCR_MODEL = "gpt-5";
 const API_URL = "https://api.openai.com/v1/responses";
+const SERVERLESS_OPENAI_TIMEOUT_MS = 15000;
 
 export async function generateCaseAnalysis({ emailText, files, language = "en" }) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -482,7 +483,7 @@ export async function generateQuoteEstimateFromKnowledge({ caseRecord, knowledge
     throw new Error("OPENAI_API_KEY is missing from the environment.");
   }
 
-  const response = await fetch(API_URL, {
+  const response = await fetchWithOptionalTimeout(API_URL, {
     method: "POST",
     headers: {
       authorization: `Bearer ${apiKey}`,
@@ -517,7 +518,9 @@ export async function generateQuoteEstimateFromKnowledge({ caseRecord, knowledge
                 buildCaseContext(caseRecord),
                 "",
                 "PRICING FILES:",
-                buildKnowledgeLibraryContext(knowledgeFiles),
+                buildKnowledgeLibraryContext(knowledgeFiles, {
+                  maxExtractedTextChars: shouldUseServerlessOpenAITimeout() ? 1200 : 3000,
+                }),
               ].join("\n"),
             },
           ],
@@ -682,10 +685,12 @@ export function buildCaseContext(caseRecord) {
   });
 }
 
-export function buildKnowledgeLibraryContext(knowledgeFiles) {
+export function buildKnowledgeLibraryContext(knowledgeFiles, options = {}) {
   if (!knowledgeFiles.length) {
     return "No knowledge files are currently stored.";
   }
+
+  const maxExtractedTextChars = Number(options.maxExtractedTextChars || 3000);
 
   return knowledgeFiles
     .map((file) =>
@@ -695,10 +700,38 @@ export function buildKnowledgeLibraryContext(knowledgeFiles) {
         type: file.type,
         category: file.category,
         summary: file.summary,
-        extracted_text: String(file.extractedText || "").slice(0, 3000),
+        extracted_text: String(file.extractedText || "").slice(0, maxExtractedTextChars),
       })
     )
     .join("\n");
+}
+
+async function fetchWithOptionalTimeout(url, options) {
+  if (!shouldUseServerlessOpenAITimeout()) {
+    return fetch(url, options);
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(new Error("OpenAI request timed out.")), SERVERLESS_OPENAI_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("OpenAI request timed out.");
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function shouldUseServerlessOpenAITimeout() {
+  return Boolean(String(process.env.VERCEL || "").trim() || String(process.env.AWS_LAMBDA_FUNCTION_NAME || "").trim());
 }
 
 export function normalizeCaseAnalysis(result) {

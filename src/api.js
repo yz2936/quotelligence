@@ -210,11 +210,7 @@ function inferNonJsonApiError({ body, context, response }) {
     return "Uploaded file is too large for the current deployment.";
   }
 
-  if (
-    operation === "quote_build" &&
-    (response.status >= 500 ||
-      /function invocation failed|internal server error|gateway|timed out|timeout|runtime exited|deployment error/i.test(lowered))
-  ) {
+  if (operation === "quote_build" && response.status !== 404) {
     return "Draft quote generation failed before the backend returned JSON. Retry once, then check the Vercel function logs for /api/quote/build.";
   }
 
