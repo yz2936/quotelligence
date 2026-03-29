@@ -124,34 +124,6 @@ function parseSharedStrings(xml) {
   return parseXmlText(xml);
 }
 
-function parseWorksheetRows(xml, sharedStrings) {
-  const rows = [];
-  const rowMatches = xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/gi);
-
-  for (const match of rowMatches) {
-    const rowXml = match[1];
-    const cells = [];
-    const cellMatches = rowXml.matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/gi);
-
-    for (const cellMatch of cellMatches) {
-      const attrs = cellMatch[1] || "";
-      const cellXml = cellMatch[2] || "";
-      const type = /t="([^"]+)"/i.exec(attrs)?.[1] || "";
-      const value = parseWorksheetCellValue(cellXml, type, sharedStrings);
-
-      if (value) {
-        cells.push(value);
-      }
-    }
-
-    if (cells.length) {
-      rows.push(cells.join(" | "));
-    }
-  }
-
-  return rows;
-}
-
 function parseWorksheetRecords(xml, sharedStrings) {
   const rows = parseWorksheetCellGrid(xml, sharedStrings);
   const headerIndex = findHeaderRowIndex(rows);

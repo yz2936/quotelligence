@@ -34,7 +34,7 @@ The original PRD positions QuoteCase Copilot as an RFQ intake and validation wor
 ## Risks
 
 - Pricing output quality depends heavily on the quality and structure of uploaded pricing files.
-- The app still lacks durable persistence, so uploaded knowledge files and generated comparisons will reset on restart.
+- The app still lacks durable persistence, so uploaded knowledge files and generated comparisons can reset across cold starts or redeploys.
 - Some document types may upload successfully but provide weak extraction due to limited local parsing.
 
 ## Recommended Next Skills

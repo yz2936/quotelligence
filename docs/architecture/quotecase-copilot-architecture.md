@@ -21,9 +21,9 @@ Extend the current minimal Node backend with a parallel knowledge-library slice 
 - `server/quote-service.js`
   Builds editable draft quotes and generates buyer-email drafts from current quote state.
 - `server/openai-client.js`
-  Holds modular `gpt-5.4` prompt calls for intake extraction, workspace Q&A, knowledge comparison, and quote building.
+  Holds modular `gpt-5.2` prompt calls for intake extraction, workspace Q&A, knowledge comparison, and quote building.
 - `server/store.js`
-  Keeps in-memory `cases[]` and `knowledgeFiles[]`.
+  Persists `cases[]` and `knowledgeFiles[]` to a JSON store under `/tmp`.
 - `src/api.js`
   Frontend client for case, knowledge, comparison, and pricing requests.
 - `src/main.js`
@@ -45,7 +45,7 @@ Extend the current minimal Node backend with a parallel knowledge-library slice 
 ## Data Flow
 
 1. Users upload RFQ files and create a structured case.
-2. Users upload knowledge files into a shared in-memory knowledge library.
+2. Users upload knowledge files into a shared backend knowledge library backed by the `/tmp` JSON store.
 3. Frontend fetches cases and knowledge files when the knowledge or quote route loads.
 4. Users select a case in the quote workspace and run knowledge comparison.
 5. Backend sends the case plus knowledge-file evidence into a modular comparison routine and returns grouped support results.
@@ -56,6 +56,6 @@ Extend the current minimal Node backend with a parallel knowledge-library slice 
 
 ## Risks
 
-- In-memory knowledge files reset on restart.
+- `/tmp` storage is not truly durable across serverless cold starts or redeploys.
 - Pricing outputs are advisory draft quotes, not approved commercial quotes.
 - Large binary documents may contribute little evidence if local extraction is weak.

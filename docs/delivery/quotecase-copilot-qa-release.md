@@ -27,4 +27,4 @@
 - Draft quotes may overfit to poor pricing evidence if users upload weak source files.
 - Workbook column drift may weaken similarity scoring or dependency adjustments until column aliases are expanded.
 - Users may interpret draft quote output as approved quote output unless it is clearly labeled as draft guidance.
-- Checkpoint decisions and audit history are still memory-only.
+- Checkpoint decisions and audit history currently rely on the `/tmp` store and are not truly durable across redeploys.

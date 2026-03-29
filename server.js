@@ -32,7 +32,7 @@ export async function handleRequest(req, res) {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
     if (url.pathname === "/api/intake" && req.method === "POST") {
-      const formData = await (await toRequest(req, url)).formData();
+      const formData = await toRequest(req, url).formData();
       const emailText = String(formData.get("email_text") || "");
       const language = String(formData.get("language") || "en");
       const files = formData
@@ -90,7 +90,7 @@ export async function handleRequest(req, res) {
     }
 
     if (url.pathname === "/api/knowledge/upload" && req.method === "POST") {
-      const formData = await (await toRequest(req, url)).formData();
+      const formData = await toRequest(req, url).formData();
       const language = String(formData.get("language") || "en");
       const files = formData
         .getAll("knowledge_files")
@@ -445,16 +445,7 @@ export async function handleRequest(req, res) {
   }
 }
 
-export const server = http.createServer(async (req, res) => {
-  try {
-    await handleRequest(req, res);
-  } catch (err) {
-    if (!res.headersSent) {
-      res.writeHead(500, { "content-type": "application/json; charset=utf-8" });
-      res.end(JSON.stringify({ error: "Server error", details: String(err) }));
-    }
-  }
-});
+export const server = http.createServer(handleRequest);
 
 if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   server.listen(port, () => {
@@ -571,16 +562,12 @@ function fieldValue(caseRecord, fieldName) {
   return caseRecord.extractedFields.find((field) => field.fieldName === fieldName)?.value || "";
 }
 
-async function toRequest(req, url) {
-  const chunks = [];
-  for await (const chunk of req) {
-    chunks.push(chunk);
-  }
-  const body = Buffer.concat(chunks);
+function toRequest(req, url) {
   return new Request(url.toString(), {
     method: req.method,
     headers: req.headers,
-    body,
+    body: req,
+    duplex: "half",
   });
 }
 

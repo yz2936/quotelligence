@@ -12,7 +12,7 @@ Implement the smallest coherent workbook-backed quote decision slice on top of t
 
 ## Work Items
 
-1. Keep in-memory knowledge-file storage and API endpoints as the current base.
+1. Keep the lightweight `/tmp` JSON-backed storage and API endpoints as the current base.
 2. Split the UI so the knowledge page is document-library only and the quote page owns pricing and outbound communication.
 3. Upgrade pricing generation from a read-only estimate to an editable draft quote with backend total recalculation.
 4. Add buyer-email draft generation from current quote terms and pricing.
@@ -27,7 +27,7 @@ Implement the smallest coherent workbook-backed quote decision slice on top of t
 ## Dependencies
 
 - Existing case intake API
-- Existing `gpt-5.4` backend client
+- Existing `gpt-5.2` backend client
 - Existing bilingual frontend framework
 - Existing XLSX text extraction path, now extended to structured workbook parsing
 - Existing case modal and quote workspace, now extended with checkpoint control UI
@@ -37,4 +37,4 @@ Implement the smallest coherent workbook-backed quote decision slice on top of t
 - Weak extraction from binary office files
 - Pricing drafts may still be low confidence when workbook columns differ materially from the expected schema
 - Memory-only storage makes repeated verification sessions fragile
-- The checkpoint engine currently persists only in memory, so audit continuity still resets on server restart
+- The checkpoint engine currently persists only through the `/tmp` store, so audit continuity can still reset across redeploys or cold starts

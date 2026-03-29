@@ -71,10 +71,10 @@ This project can be deployed to Vercel with:
 
 ### Important deployment limitation
 
-The current app stores cases and uploaded knowledge files in in-memory arrays in [`server/store.js`](./server/store.js). On Vercel, that means:
+The current app stores cases and uploaded knowledge files in a JSON file under `/tmp` via [`server/store.js`](./server/store.js). That is more stable than pure in-memory storage, but on Vercel it still means:
 
-- data is not durable
-- uploads and generated state can disappear between invocations or deployments
+- data is not truly durable
+- uploads and generated state can disappear across cold starts, instance changes, or deployments
 - this setup is suitable for demos, not production persistence
 
 ### Vercel setup steps
@@ -87,4 +87,4 @@ The current app stores cases and uploaded knowledge files in in-memory arrays in
 
 ### Before using this in production
 
-Replace the in-memory store with persistent storage, for example Postgres, Vercel KV, or another database/blob store for case data and uploaded file metadata.
+Replace the `/tmp`-backed store with persistent storage, for example Postgres, Vercel KV, or another database/blob store for case data and uploaded file metadata.
