@@ -130,7 +130,7 @@ export async function generateQuoteEstimate(caseId, language) {
     body: JSON.stringify({ caseId, language }),
   });
 
-  return handleJson(response);
+  return handleJson(response, { operation: "quote_build" });
 }
 
 export async function generateQuoteEmail(caseId, quoteEstimate, language) {
@@ -178,6 +178,7 @@ function inferNonJsonApiError({ body, context, response }) {
   const trimmed = String(body || "").trim();
   const lowered = trimmed.toLowerCase();
   const files = Array.isArray(context.files) ? context.files : [];
+  const operation = String(context.operation || "");
   const hasPdf = files.some((file) => {
     const name = String(file?.name || "").toLowerCase();
     const type = String(file?.type || "").toLowerCase();
@@ -198,13 +199,25 @@ function inferNonJsonApiError({ body, context, response }) {
   }
 
   if (
-    trimmed.startsWith("<") ||
-    trimmed.startsWith("Cannot ") ||
-    trimmed === "" ||
-    response.status === 404 ||
-    lowered.includes("not found")
+    operation === "quote_build" &&
+    (response.status >= 500 ||
+      /function invocation failed|internal server error|gateway|timed out|timeout|runtime exited|deployment error/i.test(lowered))
+  ) {
+    return "Draft quote generation failed before the backend returned JSON. Retry once, then check the Vercel function logs for /api/quote/build.";
+  }
+
+  if (
+    response.status === 404 &&
+    (trimmed.startsWith("<") ||
+      trimmed.startsWith("Cannot ") ||
+      trimmed === "" ||
+      lowered.includes("not found"))
   ) {
     return "Backend API is not available on this server. Open the app from the Node.js server preview instead of a static file server.";
+  }
+
+  if (response.status >= 500) {
+    return "Backend request failed before returning JSON. Check the server logs for the failing route.";
   }
 
   return "Backend API returned a non-JSON response.";

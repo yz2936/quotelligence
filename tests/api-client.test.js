@@ -29,3 +29,18 @@ test("inferNonJsonApiError maps missing API routes to the static-server guidance
 
   assert.match(message, /Backend API is not available on this server/i);
 });
+
+test("inferNonJsonApiError maps quote build platform failures to a quote-specific message", () => {
+  const message = __apiInternals.inferNonJsonApiError({
+    body: "<html><body>FUNCTION_INVOCATION_FAILED</body></html>",
+    context: {
+      operation: "quote_build",
+    },
+    response: {
+      status: 500,
+    },
+  });
+
+  assert.match(message, /Draft quote generation failed/i);
+  assert.match(message, /\/api\/quote\/build/i);
+});

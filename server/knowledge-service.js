@@ -68,7 +68,7 @@ export async function buildQuoteEstimate({ caseRecord, knowledgeFiles, language 
   let draftQuote;
 
   // Try Agent 3+4 pipeline first (pricing intelligence + quotation draft with business rules)
-  if (hasConfiguredOpenAI && knowledgeFiles.length) {
+  if (hasConfiguredOpenAI && knowledgeFiles.length && shouldUseQuoteAgentPipeline()) {
     try {
       const { agent1Result, agent2Result } = buildSyntheticAgentContext(caseRecord);
       const agent3Result = await runAgent3({ agent1Result, agent2Result, knowledgeFiles, language });
@@ -110,6 +110,20 @@ export async function buildQuoteEstimate({ caseRecord, knowledgeFiles, language 
     caseRecord,
     language
   );
+}
+
+function shouldUseQuoteAgentPipeline() {
+  // The 2-step quote pipeline is materially slower than the single-step fallback
+  // and can exceed serverless runtime limits during deployment previews.
+  if (String(process.env.VERCEL || "").trim()) {
+    return false;
+  }
+
+  if (String(process.env.AWS_LAMBDA_FUNCTION_NAME || "").trim()) {
+    return false;
+  }
+
+  return true;
 }
 
 /**
