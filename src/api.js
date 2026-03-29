@@ -214,6 +214,10 @@ function inferNonJsonApiError({ body, context, response }) {
     return "Draft quote generation failed before the backend returned JSON. Retry once, then check the Vercel function logs for /api/quote/build.";
   }
 
+  if (operation === "knowledge_upload" && response.status !== 404) {
+    return "Knowledge file upload failed before the backend returned JSON. Retry once, then check the Vercel function logs for /api/knowledge/upload.";
+  }
+
   if (
     operation === "rfq_intake" &&
     hasSpreadsheet &&

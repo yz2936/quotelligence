@@ -662,6 +662,16 @@ async function buildKnowledgeMetadata({ name, type, extractedText, decisionWorkb
     };
   }
 
+  if (!shouldUseKnowledgeMetadataModel()) {
+    const category = classifyKnowledgeFile(name, extractedText);
+    const preview = extractedText.replace(/\s+/g, " ").trim().slice(0, 180);
+
+    return {
+      category,
+      summary: `${category}: ${preview}${extractedText.length > 180 ? "..." : ""}`,
+    };
+  }
+
   try {
     return await generateKnowledgeFileMetadata({
       fileName: name,
@@ -679,6 +689,18 @@ async function buildKnowledgeMetadata({ name, type, extractedText, decisionWorkb
       summary: `${category}: ${preview}${extractedText.length > 180 ? "..." : ""}`,
     };
   }
+}
+
+function shouldUseKnowledgeMetadataModel() {
+  if (String(process.env.VERCEL || "").trim()) {
+    return false;
+  }
+
+  if (String(process.env.AWS_LAMBDA_FUNCTION_NAME || "").trim()) {
+    return false;
+  }
+
+  return true;
 }
 
 function summarizeDecisionWorkbook(decisionWorkbook) {

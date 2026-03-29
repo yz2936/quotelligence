@@ -45,6 +45,22 @@ test("inferNonJsonApiError maps quote build platform failures to a quote-specifi
   assert.match(message, /\/api\/quote\/build/i);
 });
 
+test("inferNonJsonApiError maps knowledge upload platform failures to a knowledge-specific message", () => {
+  const message = __apiInternals.inferNonJsonApiError({
+    body: "<html><body>FUNCTION_INVOCATION_FAILED</body></html>",
+    context: {
+      operation: "knowledge_upload",
+      files: [new File(["fake"], "pricing.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })],
+    },
+    response: {
+      status: 500,
+    },
+  });
+
+  assert.match(message, /Knowledge file upload failed/i);
+  assert.match(message, /\/api\/knowledge\/upload/i);
+});
+
 test("inferNonJsonApiError maps spreadsheet intake platform failures to an intake-specific message", () => {
   const message = __apiInternals.inferNonJsonApiError({
     body: "<html><body>FUNCTION_INVOCATION_FAILED</body></html>",
