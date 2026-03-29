@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildKnowledgeLibraryContext,
   buildWorkspaceCaseContext,
+  extractPdfTextWithOpenAI,
   normalizeCaseAnalysis,
   normalizeKnowledgeComparison,
   normalizeQuoteEmailDraft,
@@ -217,6 +218,41 @@ test("normalizeKnowledgeFileMetadata keeps category and summary grounded", () =>
   assert.equal(normalized.category, "Standards Reference");
   assert.equal(normalized.summary, "ASTM A312/A312M standard for seamless and welded stainless steel pipe.");
   assert.equal(normalized.confidence, "high");
+});
+
+test("extractPdfTextWithOpenAI sends the PDF as an input_file and returns extracted text", async () => {
+  const originalFetch = global.fetch;
+  const originalApiKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "test-key";
+
+  let requestBody = null;
+  global.fetch = async (_url, options) => {
+    requestBody = JSON.parse(options.body);
+    return {
+      ok: true,
+      async json() {
+        return {
+          output_text: "ASTM A312 TP316L\nQuantity: 1200 meters",
+        };
+      },
+    };
+  };
+
+  try {
+    const text = await extractPdfTextWithOpenAI({
+      fileName: "rfq.pdf",
+      buffer: Buffer.from("fake-pdf"),
+    });
+
+    assert.match(text, /ASTM A312 TP316L/);
+    assert.equal(requestBody.model, "gpt-5");
+    assert.equal(requestBody.input[0].content[0].type, "input_file");
+    assert.equal(requestBody.input[0].content[0].filename, "rfq.pdf");
+    assert.match(requestBody.input[0].content[0].file_data, /^data:application\/pdf;base64,/);
+  } finally {
+    global.fetch = originalFetch;
+    process.env.OPENAI_API_KEY = originalApiKey;
+  }
 });
 
 test("normalizeKnowledgeFileSummary trims grounded document summaries", () => {

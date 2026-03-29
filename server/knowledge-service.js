@@ -5,6 +5,7 @@ import { runAgent3, runAgent4, mapPipelineToQuoteEstimate } from "./agent-pipeli
 
 import {
   compareCaseToKnowledgeBase,
+  extractPdfTextWithOpenAI,
   generateKnowledgeFileMetadata,
   generateKnowledgeFileSummary,
   generateQuoteEstimateFromKnowledge,
@@ -217,11 +218,24 @@ async function normalizeKnowledgeFile(file, index, now, language) {
   const name = file.name || `knowledge-file-${index + 1}`;
   const type = inferType(name);
   const buffer = Buffer.from(await file.arrayBuffer());
-  const extractedText = await extractTextFromBuffer({
+  let extractedText = await extractTextFromBuffer({
     fileName: name,
     type,
     buffer,
   });
+
+  if (type === "PDF" && !extractedText.trim() && String(process.env.OPENAI_API_KEY || "").trim()) {
+    try {
+      extractedText = await extractPdfTextWithOpenAI({
+        fileName: name,
+        buffer,
+        language,
+      });
+    } catch (error) {
+      console.error("OpenAI PDF OCR fallback failed during knowledge upload:", error);
+    }
+  }
+
   const workbook = await extractWorkbookSheetsFromBuffer({
     fileName: name,
     type,

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { extractTextFromBuffer } from "./file-text-extractor.js";
-import { generateCaseAnalysis } from "./openai-client.js";
+import { extractPdfTextWithOpenAI, generateCaseAnalysis } from "./openai-client.js";
 import { initializeCaseWorkflow } from "./workflow-engine.js";
 import { runAgent1, runAgent2, mapPipelineToCaseFields } from "./agent-pipeline.js";
 
@@ -456,11 +456,22 @@ async function normalizeUploadedFile(file) {
   const name = file.name || "uploaded-file";
   const type = inferType(name);
   const buffer = Buffer.from(await file.arrayBuffer());
-  const extractedText = await extractTextFromBuffer({
+  let extractedText = await extractTextFromBuffer({
     fileName: name,
     type,
     buffer,
   });
+
+  if (type === "PDF" && !extractedText.trim() && String(process.env.OPENAI_API_KEY || "").trim()) {
+    try {
+      extractedText = await extractPdfTextWithOpenAI({
+        fileName: name,
+        buffer,
+      });
+    } catch (error) {
+      console.error("OpenAI PDF OCR fallback failed during intake:", error);
+    }
+  }
 
   if (type === "PDF" && !extractedText.trim()) {
     throw new Error("cannot parse PDF");

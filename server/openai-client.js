@@ -1,4 +1,5 @@
 const MODEL = "gpt-5.2";
+const PDF_OCR_MODEL = "gpt-5";
 const API_URL = "https://api.openai.com/v1/responses";
 
 export async function generateCaseAnalysis({ emailText, files, language = "en" }) {
@@ -130,6 +131,69 @@ export async function generateCaseAnalysis({ emailText, files, language = "en" }
   }
 
   return normalizeCaseAnalysis(JSON.parse(outputText));
+}
+
+export async function extractPdfTextWithOpenAI({ fileName, buffer, language = "en" }) {
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is missing from the environment.");
+  }
+
+  const base64Data = Buffer.from(buffer).toString("base64");
+  const response = await fetch(API_URL, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: PDF_OCR_MODEL,
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_file",
+              filename: fileName || "upload.pdf",
+              file_data: `data:application/pdf;base64,${base64Data}`,
+            },
+            {
+              type: "input_text",
+              text:
+                language === "zh"
+                  ? [
+                      "请读取这个 PDF，并提取其中所有与报价相关的可读文本。",
+                      "保留表格、行项目、规格、数量、标准、检验要求、证书要求、交付要求和备注。",
+                      "仅返回提取出的文本，不要解释。",
+                      "如果这个 PDF 基本无法读取，请只返回 CANNOT_PARSE_PDF。",
+                    ].join("\n")
+                  : [
+                      "Read this PDF and extract the readable text relevant to quoting.",
+                      "Preserve tables, line items, specifications, quantities, standards, inspection requirements, document requirements, delivery requirements, and notes.",
+                      "Return only the extracted text with no explanation.",
+                      "If this PDF is effectively unreadable, return exactly CANNOT_PARSE_PDF.",
+                    ].join("\n"),
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  const payload = await response.json();
+
+  if (!response.ok) {
+    throw new Error(payload.error?.message || "OpenAI PDF OCR request failed.");
+  }
+
+  const outputText = (payload.output_text || extractOutputText(payload) || "").trim();
+
+  if (!outputText || outputText === "CANNOT_PARSE_PDF") {
+    return "";
+  }
+
+  return outputText;
 }
 
 export async function answerWorkspaceQuestion({ question, cases, language = "en" }) {
