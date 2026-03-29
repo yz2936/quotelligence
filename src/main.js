@@ -28,7 +28,7 @@ import {
 
 const root = document.querySelector("#app");
 const storedLanguage = globalThis.localStorage?.getItem("quotecase_language");
-const CASE_CACHE_KEY = "quotelligence_case_cache_v1";
+const CASE_CACHE_KEY = "quotelligence_case_cache_v2";
 const DEFAULT_ALLOWED_STATUSES = [
   "New",
   "Parsing",
@@ -639,6 +639,9 @@ async function syncSystemStatus() {
   try {
     const response = await fetchSystemStatus();
     state.system = response.system;
+    if (response.system.storageMode === "database") {
+      clearCaseCache();
+    }
     await syncSupabaseAuthClient(response.system.supabase || {});
   } catch {
     state.system = {
@@ -1282,6 +1285,15 @@ function writeCachedCaseMap(cache) {
     globalThis.localStorage?.setItem(CASE_CACHE_KEY, JSON.stringify(cache));
   } catch {
     // Ignore local cache write failures.
+  }
+}
+
+function clearCaseCache() {
+  try {
+    globalThis.localStorage?.removeItem("quotelligence_case_cache_v1");
+    globalThis.localStorage?.removeItem(CASE_CACHE_KEY);
+  } catch {
+    // Ignore local cache cleanup failures.
   }
 }
 
