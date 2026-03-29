@@ -7,6 +7,7 @@ import {
   fetchDashboardStats,
   fetchCase,
   fetchCases,
+  fetchQuoteDocument,
   fetchKnowledgeBase,
   fetchKnowledgeFile,
   fetchPendingOutcomes,
@@ -302,6 +303,12 @@ root.addEventListener("click", async (event) => {
       return;
     }
 
+    if (action === "download-quote-pdf") {
+      event.preventDefault();
+      await downloadCurrentQuotePdf();
+      return;
+    }
+
     if (action === "set-outcome-result") {
       event.preventDefault();
       setOutcomeFormValue(target.dataset.caseId, "result", target.dataset.outcomeResult || "");
@@ -411,7 +418,7 @@ root.addEventListener("click", async (event) => {
 
     if (action === "send-quote-email") {
       event.preventDefault();
-      sendQuoteEmail();
+      await sendQuoteEmail();
       return;
     }
 
@@ -1167,6 +1174,37 @@ async function markCurrentQuoteSent() {
   mount();
 }
 
+async function downloadCurrentQuotePdf() {
+  if (!state.quote.selectedCase) {
+    return;
+  }
+
+  state.error = "";
+  mount();
+
+  const response = await fetchQuoteDocument(
+    state.quote.selectedCase.caseId,
+    ensureQuoteEstimate(state.quote.selectedCase),
+    state.language,
+    state.quote.selectedCase || state.selectedCase || null
+  );
+  const bytes = Uint8Array.from(atob(response.fileBase64), (char) => char.charCodeAt(0));
+  const blob = new Blob([bytes], { type: response.contentType || "application/pdf" });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = objectUrl;
+  link.download = response.fileName || `${state.quote.selectedCase.caseId}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+
+  state.quote.sendFeedback =
+    state.language === "zh" ? "正式 PDF 报价文件已下载。" : "Formal quote PDF downloaded.";
+  mount();
+}
+
 function setOutcomeFormValue(caseId, field, value) {
   if (!caseId || !field) {
     return;
@@ -1209,7 +1247,7 @@ async function submitOutcome(caseId) {
   mount();
 }
 
-function sendQuoteEmail() {
+async function sendQuoteEmail() {
   const emailDraft = state.quote.emailDraft;
 
   if (!emailDraft || !emailDraft.to) {
@@ -1219,6 +1257,18 @@ function sendQuoteEmail() {
         : "Add the buyer email and generate the email draft first.";
     mount();
     return;
+  }
+
+  if (state.quote.selectedCase) {
+    try {
+      await downloadCurrentQuotePdf();
+    } catch (error) {
+      state.quote.sendFeedback =
+        state.language === "zh"
+          ? "邮件草稿已准备，但正式 PDF 下载失败。"
+          : "The email draft is ready, but the formal PDF could not be downloaded.";
+      mount();
+    }
   }
 
   const params = new URLSearchParams({
@@ -1233,8 +1283,8 @@ function sendQuoteEmail() {
   globalThis.location.href = `mailto:${encodeURIComponent(emailDraft.to)}?${params.toString()}`;
   state.quote.sendFeedback =
     state.language === "zh"
-      ? "已打开默认邮件客户端。"
-      : "Opened your default mail client.";
+      ? "已下载正式 PDF，并打开默认邮件客户端。请将 PDF 附加到邮件后发送。"
+      : "Downloaded the formal PDF and opened your default mail client. Attach the PDF before sending.";
   mount();
 }
 

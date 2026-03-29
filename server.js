@@ -7,7 +7,7 @@ import { loadEnv } from "./server/env.js";
 import { buildCaseFromSubmission, deriveCaseStatus, deriveMissingInfo, getAllowedCaseStatuses } from "./server/intake-service.js";
 import { answerWorkspaceQuestion } from "./server/openai-client.js";
 import { buildKnowledgeComparison, buildKnowledgeFilesFromUpload, deriveKnowledgeStatus, getKnowledgeCategories, normalizeStoredQuoteEstimate, summarizeKnowledgeFile } from "./server/knowledge-service.js";
-import { buildQuoteDraft, buildQuoteEmail } from "./server/quote-service.js";
+import { buildQuoteDraft, buildQuoteEmail, buildQuoteDocument } from "./server/quote-service.js";
 import { deleteCase, getCase, getKnowledgeFile, getStoreHealth, getStoreMode, listCases, listKnowledgeFiles, saveCase, saveKnowledgeFile } from "./server/store.js";
 import { authenticateRequest, getPublicSupabaseConfig } from "./server/supabase-auth.js";
 import { applyCheckpointDecision, syncCaseWorkflow } from "./server/workflow-engine.js";
@@ -545,6 +545,35 @@ export async function handleRequest(req, res) {
       return sendJson(res, 200, {
         emailDraft,
         case: updated,
+      });
+    }
+
+    if (url.pathname === "/api/quote/document" && req.method === "POST") {
+      const payload = await readJsonBody(req);
+      const caseId = String(payload.caseId || "");
+      const language = String(payload.language || "en");
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
+
+      if (!caseRecord) {
+        return sendJson(res, 404, { error: "Case not found" });
+      }
+
+      const quoteEstimate = normalizeStoredQuoteEstimate({
+        caseRecord,
+        quoteEstimate: payload.quoteEstimate || caseRecord.quoteEstimate,
+        language,
+      });
+
+      const document = await buildQuoteDocument({
+        caseRecord,
+        quoteEstimate,
+        language,
+      });
+
+      return sendJson(res, 200, {
+        fileName: document.fileName,
+        contentType: document.contentType,
+        fileBase64: document.buffer.toString("base64"),
       });
     }
 

@@ -980,6 +980,7 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
             <h3>${t(language, "quoteEmailDescription")}</h3>
           </div>
           <div class="case-table__actions">
+            <button class="button button--secondary" data-action="download-quote-pdf">${t(language, "downloadQuotePdf")}</button>
             <button class="button button--secondary" data-action="generate-quote-email">${quoteState.emailLoading ? t(language, "generatingEmail") : t(language, "generateQuoteEmail")}</button>
             <button class="button" data-action="send-quote-email">${t(language, "sendQuoteEmail")}</button>
           </div>
@@ -1204,6 +1205,7 @@ function renderQuoteEmailDraft(emailDraft, language) {
       <div><p class="eyebrow">${t(language, "emailTo")}</p><p>${escapeHtml(emailDraft.to || t(language, "noneLabel"))}</p></div>
       <div><p class="eyebrow">${t(language, "emailCc")}</p><p>${escapeHtml(emailDraft.cc || t(language, "noneLabel"))}</p></div>
       <div><p class="eyebrow">${t(language, "emailSubject")}</p><p>${escapeHtml(emailDraft.subject)}</p></div>
+      <div><p class="eyebrow">${t(language, "emailAttachment")}</p><p>${escapeHtml(emailDraft.attachmentFileName || t(language, "noneLabel"))}</p></div>
       <div><p class="eyebrow">${t(language, "emailPreview")}</p><p>${escapeHtml(emailDraft.preview)}</p></div>
       <div><p class="eyebrow">${t(language, "emailBody")}</p><pre class="email-draft">${escapeHtml(emailDraft.body)}</pre></div>
     </div>

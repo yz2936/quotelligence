@@ -167,6 +167,18 @@ export async function markQuoteSent(caseId, quoteEstimate, language, caseSnapsho
   return handleJson(response);
 }
 
+export async function fetchQuoteDocument(caseId, quoteEstimate, language, caseSnapshot = null) {
+  const response = await apiFetch("/api/quote/document", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ caseId, quoteEstimate, language, caseSnapshot }),
+  });
+
+  return handleJson(response);
+}
+
 export async function generateQuoteEmail(caseId, quoteEstimate, language, caseSnapshot = null) {
   const response = await apiFetch("/api/quote/email", {
     method: "POST",
