@@ -1347,6 +1347,30 @@ td.case-table__actions .button { display: inline-flex; }
 .analyst-message p { margin: 0; }
 .analyst-message__meta { margin-top: 8px !important; font-size: 11.5px; }
 
+.analyst-block + .analyst-block {
+  margin-top: 10px;
+}
+
+.analyst-block__title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.analyst-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.analyst-list li {
+  padding-left: 2px;
+}
+
 .analyst-message--user {
   background: linear-gradient(135deg, #EFF6FF, #DBEAFE);
   border: 1px solid rgba(37, 99, 235, 0.15);
@@ -1358,6 +1382,7 @@ td.case-table__actions .button { display: inline-flex; }
   border: 1px solid var(--border);
   box-shadow: var(--shadow-xs);
   margin-right: 24px;
+  line-height: 1.6;
 }
 
 /* Analyst composer */

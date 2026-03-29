@@ -563,7 +563,7 @@ function renderAnalystWindow(state) {
               .map(
                 (message) => `
                   <article class="analyst-message analyst-message--${message.role}">
-                    <p>${message.text}</p>
+                    ${renderAnalystMessageContent(message.text)}
                     ${message.meta ? `<p class="muted analyst-message__meta">${message.meta}</p>` : ""}
                   </article>
                 `
@@ -584,6 +584,93 @@ function renderAnalystWindow(state) {
       </div>
     </aside>
   `;
+}
+
+function renderAnalystMessageContent(text) {
+  const blocks = String(text || "")
+    .split(/\n\s*\n/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  if (!blocks.length) {
+    return "<p></p>";
+  }
+
+  return blocks
+    .map((block) => {
+      const lines = block
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      if (!lines.length) {
+        return "";
+      }
+
+      const heading = isAnalystHeading(lines[0]) ? lines[0].replace(/:$/, "") : "";
+      const contentLines = heading ? lines.slice(1) : lines;
+
+      if (contentLines.every(isBulletLine)) {
+        return `
+          <section class="analyst-block">
+            ${heading ? `<h4 class="analyst-block__title">${escapeHtml(heading)}</h4>` : ""}
+            <ul class="analyst-list">
+              ${contentLines.map((line) => `<li>${escapeHtml(cleanBulletLine(line))}</li>`).join("")}
+            </ul>
+          </section>
+        `;
+      }
+
+      if (lines.length > 1 && heading) {
+        return `
+          <section class="analyst-block">
+            <h4 class="analyst-block__title">${escapeHtml(heading)}</h4>
+            <p>${escapeHtml(contentLines.join(" "))}</p>
+          </section>
+        `;
+      }
+
+      if (lines.length > 1 && contentLines.slice(1).every(isBulletLine)) {
+        return `
+          <section class="analyst-block">
+            <h4 class="analyst-block__title">${escapeHtml(contentLines[0].replace(/:$/, ""))}</h4>
+            <ul class="analyst-list">
+              ${contentLines.slice(1).map((line) => `<li>${escapeHtml(cleanBulletLine(line))}</li>`).join("")}
+            </ul>
+          </section>
+        `;
+      }
+
+      return `
+        <section class="analyst-block">
+          ${heading ? `<h4 class="analyst-block__title">${escapeHtml(heading)}</h4>` : ""}
+          <p>${escapeHtml(contentLines.join(" "))}</p>
+        </section>
+      `;
+    })
+    .join("");
+}
+
+function isBulletLine(line) {
+  return /^([-*•]|\d+\.)\s+/.test(String(line || "").trim());
+}
+
+function cleanBulletLine(line) {
+  return String(line || "").trim().replace(/^([-*•]|\d+\.)\s+/, "");
+}
+
+function isAnalystHeading(line) {
+  const value = String(line || "").trim();
+
+  if (!value) {
+    return false;
+  }
+
+  if (/:$/.test(value)) {
+    return true;
+  }
+
+  return value.length <= 48 && !/[.!?]$/.test(value) && !isBulletLine(value);
 }
 
 function renderKnowledgeComparison(state) {

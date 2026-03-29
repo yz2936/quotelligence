@@ -218,6 +218,8 @@ export async function answerWorkspaceQuestion({ question, cases, knowledgeFiles 
           "Answer only from the supplied case data and uploaded knowledge files.",
           "For Excel or workbook uploads, read the workbook tab names, columns, and sample rows before answering.",
           "If the question asks for tab-level insights, organize the answer by sheet.",
+          "Use short sections with clear headings and concise bullet points when possible.",
+          "Avoid repetition, filler, and long dense paragraphs.",
           "If data is insufficient, say so clearly.",
           "Be concise and factual.",
           "When doing counts or time-based summaries, explain the basis briefly.",
