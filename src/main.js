@@ -89,6 +89,9 @@ const state = {
 resetIdleIntakeMessage();
 
 function mount(options = {}) {
+  const preserveView = options.preserveView !== false;
+  const viewState = preserveView ? captureViewState() : null;
+
   renderApp(
     root,
     {
@@ -99,10 +102,14 @@ function mount(options = {}) {
     },
     window.location.hash || "#/intake"
   );
+
+  if (viewState) {
+    restoreViewState(viewState);
+  }
 }
 
 window.addEventListener("hashchange", async () => {
-  mount({ animateRouteChange: true });
+  mount({ animateRouteChange: true, preserveView: false });
   try {
     await syncRouteData();
   } catch (error) {
@@ -511,7 +518,7 @@ try {
 } catch (error) {
   state.error = error instanceof Error ? error.message : String(error);
 }
-mount({ animateRouteChange: true });
+mount({ animateRouteChange: true, preserveView: false });
 
 async function syncRouteData() {
   await syncSystemStatus();
@@ -1152,4 +1159,115 @@ function writeCachedCaseMap(cache) {
   } catch {
     // Ignore local cache write failures.
   }
+}
+
+function captureViewState() {
+  const activeElement = document.activeElement;
+  const descriptor = buildFocusableDescriptor(activeElement);
+
+  return {
+    scrollX: window.scrollX,
+    scrollY: window.scrollY,
+    focus: descriptor,
+  };
+}
+
+function restoreViewState(viewState) {
+  window.requestAnimationFrame(() => {
+    window.scrollTo(viewState.scrollX, viewState.scrollY);
+
+    if (!viewState.focus?.selector) {
+      return;
+    }
+
+    const nextElement = root.querySelector(viewState.focus.selector);
+
+    if (!nextElement || typeof nextElement.focus !== "function") {
+      return;
+    }
+
+    nextElement.focus({ preventScroll: true });
+
+    if (
+      "selectionStart" in nextElement &&
+      typeof nextElement.setSelectionRange === "function" &&
+      Number.isInteger(viewState.focus.selectionStart) &&
+      Number.isInteger(viewState.focus.selectionEnd)
+    ) {
+      nextElement.setSelectionRange(viewState.focus.selectionStart, viewState.focus.selectionEnd);
+    }
+  });
+}
+
+function buildFocusableDescriptor(element) {
+  if (!(element instanceof HTMLElement) || !root.contains(element)) {
+    return null;
+  }
+
+  const selector = selectorForElement(element);
+
+  if (!selector) {
+    return null;
+  }
+
+  return {
+    selector,
+    selectionStart: "selectionStart" in element ? element.selectionStart : null,
+    selectionEnd: "selectionEnd" in element ? element.selectionEnd : null,
+  };
+}
+
+function selectorForElement(element) {
+  if (element.id) {
+    return `#${escapeSelectorValue(element.id)}`;
+  }
+
+  const dataSelectorMap = [
+    ["quoteLineField", ["lineId"]],
+    ["quoteTerm", []],
+    ["quoteCharge", ["chargeId"]],
+    ["quoteHeader", []],
+    ["fieldName", []],
+    ["productField", []],
+    ["checkpointNoteFor", []],
+    ["productIndex", []],
+    ["caseProductIndex", []],
+    ["caseStatus", []],
+  ];
+
+  for (const [attribute, extraAttributes] of dataSelectorMap) {
+    if (!element.dataset?.[attribute]) {
+      continue;
+    }
+
+    const segments = [`[data-${toKebabCase(attribute)}="${escapeAttributeValue(element.dataset[attribute])}"]`];
+
+    for (const extraAttribute of extraAttributes) {
+      const extraValue = element.dataset?.[extraAttribute];
+
+      if (extraValue) {
+        segments.push(`[data-${toKebabCase(extraAttribute)}="${escapeAttributeValue(extraValue)}"]`);
+      }
+    }
+
+    return segments.join("");
+  }
+
+  return null;
+}
+
+function toKebabCase(value) {
+  return value.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
+}
+
+function escapeSelectorValue(value) {
+  if (globalThis.CSS?.escape) {
+    return globalThis.CSS.escape(value);
+  }
+
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+}
+
+function escapeAttributeValue(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
