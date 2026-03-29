@@ -143,25 +143,25 @@ export async function generateQuoteEstimate(caseId, language, caseSnapshot = nul
   return handleJson(response, { operation: "quote_build" });
 }
 
-export async function generateQuoteEmail(caseId, quoteEstimate, language) {
+export async function generateQuoteEmail(caseId, quoteEstimate, language, caseSnapshot = null) {
   const response = await apiFetch("/api/quote/email", {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
-    body: JSON.stringify({ caseId, quoteEstimate, language }),
+    body: JSON.stringify({ caseId, quoteEstimate, language, caseSnapshot }),
   });
 
   return handleJson(response);
 }
 
-export async function createQuoteSnapshot(caseId, quoteEstimate, language) {
+export async function createQuoteSnapshot(caseId, quoteEstimate, language, caseSnapshot = null) {
   const response = await apiFetch("/api/quote/snapshot", {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
-    body: JSON.stringify({ caseId, quoteEstimate, language, actor: "user" }),
+    body: JSON.stringify({ caseId, quoteEstimate, language, actor: "user", caseSnapshot }),
   });
 
   return handleJson(response);

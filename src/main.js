@@ -940,7 +940,8 @@ async function runQuoteEmailGeneration() {
     const response = await generateQuoteEmail(
       state.quote.selectedCase.caseId,
       ensureQuoteEstimate(state.quote.selectedCase),
-      state.language
+      state.language,
+      state.quote.selectedCase || state.selectedCase || null
     );
     syncUpdatedCase(response.case);
     state.quote.emailDraft = response.emailDraft;
@@ -962,7 +963,8 @@ async function saveQuoteSnapshot() {
   const response = await createQuoteSnapshot(
     state.quote.selectedCase.caseId,
     ensureQuoteEstimate(state.quote.selectedCase),
-    state.language
+    state.language,
+    state.quote.selectedCase || state.selectedCase || null
   );
 
   syncUpdatedCase(response.case);

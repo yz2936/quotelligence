@@ -276,8 +276,7 @@ export async function handleRequest(req, res) {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
       const language = String(payload.language || "en");
-      const caseSnapshot = normalizeCaseSnapshot(payload.caseSnapshot, caseId);
-      const caseRecord = (await getCase(caseId)) || caseSnapshot;
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
 
       if (!caseRecord) {
         return sendJson(res, 404, { error: "Case not found" });
@@ -315,8 +314,7 @@ export async function handleRequest(req, res) {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
       const language = String(payload.language || "en");
-      const caseSnapshot = normalizeCaseSnapshot(payload.caseSnapshot, caseId);
-      const caseRecord = (await getCase(caseId)) || caseSnapshot;
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
 
       if (!caseRecord) {
         return sendJson(res, 404, { error: "Case not found" });
@@ -362,7 +360,7 @@ export async function handleRequest(req, res) {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
       const language = String(payload.language || "en");
-      const caseRecord = await getCase(caseId);
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
 
       if (!caseRecord) {
         return sendJson(res, 404, { error: "Case not found" });
@@ -415,7 +413,7 @@ export async function handleRequest(req, res) {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
       const language = String(payload.language || "en");
-      const caseRecord = await getCase(caseId);
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
 
       if (!caseRecord) {
         return sendJson(res, 404, { error: "Case not found" });
@@ -588,6 +586,23 @@ function normalizeCaseSnapshot(value, expectedCaseId) {
   }
 
   return value;
+}
+
+async function resolveCaseRecord(caseId, caseSnapshotValue) {
+  const existing = await getCase(caseId);
+
+  if (existing) {
+    return existing;
+  }
+
+  const caseSnapshot = normalizeCaseSnapshot(caseSnapshotValue, caseId);
+
+  if (!caseSnapshot) {
+    return null;
+  }
+
+  await saveCase(caseSnapshot);
+  return caseSnapshot;
 }
 
 function matchKnowledgeFileDetailPath(pathname) {
