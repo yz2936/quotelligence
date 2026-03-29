@@ -17,6 +17,13 @@ import {
   uploadKnowledgeFiles,
 } from "./api.js";
 import { confidenceLabel, t } from "./i18n.js";
+import {
+  configureSupabaseClient,
+  getCurrentSession,
+  onSupabaseAuthStateChange,
+  signInWithPassword,
+  signOutSession,
+} from "./supabase.js";
 
 const root = document.querySelector("#app");
 const storedLanguage = globalThis.localStorage?.getItem("quotecase_language");
@@ -31,6 +38,8 @@ const DEFAULT_ALLOWED_STATUSES = [
   "Ready to Quote",
   "Escalate Internally",
 ];
+let authSubscription = null;
+let authClientConfigKey = "";
 
 const state = {
   language: storedLanguage === "zh" ? "zh" : "en",
@@ -60,6 +69,21 @@ const state = {
     aiConfigured: false,
     model: "",
     storageMode: "",
+    supabase: {
+      configured: false,
+      url: "",
+      anonKey: "",
+    },
+  },
+  auth: {
+    ready: false,
+    configured: false,
+    loading: false,
+    email: "",
+    password: "",
+    error: "",
+    session: null,
+    user: null,
   },
   analyst: {
     open: true,
@@ -110,6 +134,11 @@ function mount(options = {}) {
 }
 
 window.addEventListener("hashchange", async () => {
+  if (shouldBlockProtectedRoutes()) {
+    mount({ animateRouteChange: true, preserveView: false });
+    return;
+  }
+
   mount({ animateRouteChange: true, preserveView: false });
   try {
     await syncRouteData();
@@ -145,6 +174,18 @@ root.addEventListener("click", async (event) => {
         resetIdleIntakeMessage();
       }
       mount();
+      return;
+    }
+
+    if (action === "submit-login") {
+      event.preventDefault();
+      await submitLogin();
+      return;
+    }
+
+    if (action === "sign-out") {
+      event.preventDefault();
+      await logout();
       return;
     }
 
@@ -511,15 +552,20 @@ root.addEventListener("input", (event) => {
 
   if (target.id === "analyst-question") {
     state.analyst.question = target.value;
+    return;
+  }
+
+  if (target.id === "login-email") {
+    state.auth.email = target.value;
+    return;
+  }
+
+  if (target.id === "login-password") {
+    state.auth.password = target.value;
   }
 });
 
-try {
-  await syncRouteData();
-} catch (error) {
-  state.error = error instanceof Error ? error.message : String(error);
-}
-mount({ animateRouteChange: true, preserveView: false });
+await bootstrap();
 
 async function syncRouteData() {
   await syncSystemStatus();
@@ -578,13 +624,21 @@ async function syncSystemStatus() {
   try {
     const response = await fetchSystemStatus();
     state.system = response.system;
+    await syncSupabaseAuthClient(response.system.supabase || {});
   } catch {
     state.system = {
       backendAvailable: false,
       aiConfigured: false,
       model: "",
       storageMode: "",
+      supabase: {
+        configured: false,
+        url: "",
+        anonKey: "",
+      },
     };
+    state.auth.ready = true;
+    state.auth.configured = false;
   }
 }
 
@@ -1182,6 +1236,128 @@ function writeCachedCaseMap(cache) {
   } catch {
     // Ignore local cache write failures.
   }
+}
+
+async function bootstrap() {
+  try {
+    await syncSystemStatus();
+    if (state.auth.user) {
+      await syncRouteData();
+    } else if (state.auth.configured) {
+      window.location.hash = "#/login";
+    }
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : String(error);
+  }
+
+  mount({ animateRouteChange: true, preserveView: false });
+}
+
+async function syncSupabaseAuthClient(supabaseConfig) {
+  const configured = Boolean(supabaseConfig?.configured && supabaseConfig?.url && supabaseConfig?.anonKey);
+  state.auth.configured = configured;
+
+  if (!configured) {
+    if (authSubscription?.data?.subscription) {
+      authSubscription.data.subscription.unsubscribe();
+      authSubscription = null;
+    }
+    authClientConfigKey = "";
+    state.auth.ready = true;
+    state.auth.session = null;
+    state.auth.user = null;
+    return;
+  }
+
+  const nextConfigKey = `${supabaseConfig.url}::${supabaseConfig.anonKey}`;
+  configureSupabaseClient({
+    url: supabaseConfig.url,
+    anonKey: supabaseConfig.anonKey,
+  });
+
+  if (!authSubscription || authClientConfigKey !== nextConfigKey) {
+    if (authSubscription?.data?.subscription) {
+      authSubscription.data.subscription.unsubscribe();
+    }
+
+    authSubscription = onSupabaseAuthStateChange(async (session) => {
+      applyAuthSession(session);
+
+      if (!session) {
+        clearWorkspaceState();
+        window.location.hash = "#/login";
+        mount({ preserveView: false });
+        return;
+      }
+
+      if (state.system.backendAvailable) {
+        try {
+          await syncRouteData();
+        } catch (error) {
+          state.error = error instanceof Error ? error.message : String(error);
+        }
+        mount();
+      }
+    });
+    authClientConfigKey = nextConfigKey;
+  }
+
+  const session = await getCurrentSession();
+  applyAuthSession(session);
+}
+
+function applyAuthSession(session) {
+  state.auth.ready = true;
+  state.auth.session = session || null;
+  state.auth.user = session?.user || null;
+}
+
+async function submitLogin() {
+  if (!state.auth.configured) {
+    return;
+  }
+
+  state.auth.loading = true;
+  state.auth.error = "";
+  mount();
+
+  try {
+    const session = await signInWithPassword({
+      email: state.auth.email.trim(),
+      password: state.auth.password,
+    });
+    applyAuthSession(session);
+    state.auth.password = "";
+    window.location.hash = "#/intake";
+    await syncRouteData();
+  } catch (error) {
+    state.auth.error = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.auth.loading = false;
+    mount({ preserveView: false });
+  }
+}
+
+async function logout() {
+  await signOutSession();
+  clearWorkspaceState();
+  state.auth.password = "";
+  window.location.hash = "#/login";
+  mount({ preserveView: false });
+}
+
+function clearWorkspaceState() {
+  state.cases = [];
+  state.allowedStatuses = [];
+  state.selectedCaseId = null;
+  state.selectedCase = null;
+  state.quote.selectedCaseId = null;
+  state.quote.selectedCase = null;
+  state.knowledge.files = [];
+}
+
+function shouldBlockProtectedRoutes() {
+  return state.auth.ready && state.auth.configured && !state.auth.user;
 }
 
 function shouldUseBackendAuthoritativeData() {

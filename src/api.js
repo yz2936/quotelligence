@@ -1,3 +1,5 @@
+import { getAccessToken } from "./supabase.js";
+
 export async function createCaseFromIntake({ files, emailText, language }) {
   const formData = new FormData();
 
@@ -8,7 +10,7 @@ export async function createCaseFromIntake({ files, emailText, language }) {
   formData.append("email_text", emailText);
   formData.append("language", language);
 
-  const response = await fetch("/api/intake", {
+  const response = await apiFetch("/api/intake", {
     method: "POST",
     body: formData,
   });
@@ -17,12 +19,12 @@ export async function createCaseFromIntake({ files, emailText, language }) {
 }
 
 export async function fetchCases() {
-  const response = await fetch("/api/cases");
+  const response = await apiFetch("/api/cases");
   return handleJson(response);
 }
 
 export async function fetchCase(caseId) {
-  const response = await fetch(`/api/cases/${encodeURIComponent(caseId)}`);
+  const response = await apiFetch(`/api/cases/${encodeURIComponent(caseId)}`);
   return handleJson(response);
 }
 
@@ -32,7 +34,7 @@ export async function fetchSystemStatus() {
 }
 
 export async function updateCase(caseId, payload) {
-  const response = await fetch(`/api/cases/${encodeURIComponent(caseId)}`, {
+  const response = await apiFetch(`/api/cases/${encodeURIComponent(caseId)}`, {
     method: "PATCH",
     headers: {
       "content-type": "application/json",
@@ -44,7 +46,7 @@ export async function updateCase(caseId, payload) {
 }
 
 export async function submitCheckpointDecision(caseId, checkpointId, payload) {
-  const response = await fetch(
+  const response = await apiFetch(
     `/api/cases/${encodeURIComponent(caseId)}/checkpoints/${encodeURIComponent(checkpointId)}/decision`,
     {
       method: "POST",
@@ -59,7 +61,7 @@ export async function submitCheckpointDecision(caseId, checkpointId, payload) {
 }
 
 export async function queryWorkspace(question, language) {
-  const response = await fetch("/api/workspace/query", {
+  const response = await apiFetch("/api/workspace/query", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -71,12 +73,12 @@ export async function queryWorkspace(question, language) {
 }
 
 export async function fetchKnowledgeBase() {
-  const response = await fetch("/api/knowledge");
+  const response = await apiFetch("/api/knowledge");
   return handleJson(response);
 }
 
 export async function fetchKnowledgeFile(knowledgeFileId) {
-  const response = await fetch(`/api/knowledge/${encodeURIComponent(knowledgeFileId)}`);
+  const response = await apiFetch(`/api/knowledge/${encodeURIComponent(knowledgeFileId)}`);
   return handleJson(response);
 }
 
@@ -89,7 +91,7 @@ export async function uploadKnowledgeFiles({ files, language }) {
 
   formData.append("language", language);
 
-  const response = await fetch("/api/knowledge/upload", {
+  const response = await apiFetch("/api/knowledge/upload", {
     method: "POST",
     body: formData,
   });
@@ -98,7 +100,7 @@ export async function uploadKnowledgeFiles({ files, language }) {
 }
 
 export async function compareKnowledge(caseId, language) {
-  const response = await fetch("/api/knowledge/compare", {
+  const response = await apiFetch("/api/knowledge/compare", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -110,7 +112,7 @@ export async function compareKnowledge(caseId, language) {
 }
 
 export async function summarizeKnowledgeFile(knowledgeFileId, language) {
-  const response = await fetch(`/api/knowledge/${encodeURIComponent(knowledgeFileId)}/summarize`, {
+  const response = await apiFetch(`/api/knowledge/${encodeURIComponent(knowledgeFileId)}/summarize`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -122,7 +124,7 @@ export async function summarizeKnowledgeFile(knowledgeFileId, language) {
 }
 
 export async function generateQuoteEstimate(caseId, language) {
-  const response = await fetch("/api/quote/build", {
+  const response = await apiFetch("/api/quote/build", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -134,7 +136,7 @@ export async function generateQuoteEstimate(caseId, language) {
 }
 
 export async function generateQuoteEmail(caseId, quoteEstimate, language) {
-  const response = await fetch("/api/quote/email", {
+  const response = await apiFetch("/api/quote/email", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -146,7 +148,7 @@ export async function generateQuoteEmail(caseId, quoteEstimate, language) {
 }
 
 export async function createQuoteSnapshot(caseId, quoteEstimate, language) {
-  const response = await fetch("/api/quote/snapshot", {
+  const response = await apiFetch("/api/quote/snapshot", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -155,6 +157,20 @@ export async function createQuoteSnapshot(caseId, quoteEstimate, language) {
   });
 
   return handleJson(response);
+}
+
+async function apiFetch(input, init = {}) {
+  const token = await getAccessToken();
+  const headers = new Headers(init.headers || {});
+
+  if (token) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
+
+  return fetch(input, {
+    ...init,
+    headers,
+  });
 }
 
 async function handleJson(response, context = {}) {

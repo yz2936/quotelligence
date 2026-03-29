@@ -14,6 +14,16 @@ const routes = {
 };
 
 export function renderApp(root, state, currentHash) {
+  if (!state.auth?.ready) {
+    root.innerHTML = renderAuthLoading(state.language);
+    return;
+  }
+
+  if (!state.auth?.user) {
+    root.innerHTML = renderLoginPage(state);
+    return;
+  }
+
   const activeRoute = routes[currentHash] ? currentHash : "#/intake";
   const screen = routes[activeRoute](state);
   const currentCase = state.selectedCase || state.cases[0] || null;
@@ -68,6 +78,8 @@ export function renderApp(root, state, currentHash) {
               <button class="language-toggle__button ${language === "en" ? "language-toggle__button--active" : ""}" data-action="set-language" data-language="en">${t(language, "englishShort")}</button>
               <button class="language-toggle__button ${language === "zh" ? "language-toggle__button--active" : ""}" data-action="set-language" data-language="zh">${t(language, "chineseShort")}</button>
             </div>
+            <span class="topbar-user">${escapeHtml(state.auth.user.email || "")}</span>
+            <button class="topbar-link topbar-link--button" data-action="sign-out">${t(language, "signOut")}</button>
             <a class="topbar-link" href="#/intake">${t(language, "newIntake")}</a>
             <a class="topbar-link" href="#/case">${t(language, "openWorkspace")}</a>
             <button class="topbar-analyst-button" data-action="toggle-analyst" aria-label="${state.analyst.open ? t(language, "collapseAnalyst") : t(language, "expandAnalyst")}" title="${state.analyst.open ? t(language, "collapseAnalyst") : t(language, "expandAnalyst")}">
@@ -85,6 +97,58 @@ export function renderApp(root, state, currentHash) {
         ${state.modalOpen && state.selectedCase ? renderCaseModal(state.selectedCase, state.allowedStatuses, language) : ""}
         ${state.knowledge.previewOpen && state.knowledge.selectedFile ? renderKnowledgePreviewModal(state.knowledge.selectedFile, language) : ""}
       </main>
+    </div>
+  `;
+}
+
+function renderAuthLoading(language) {
+  return `
+    <div class="auth-shell">
+      <div class="auth-card">
+        <p class="eyebrow">${t(language, "authLoadingEyebrow")}</p>
+        <h1>${t(language, "authLoadingTitle")}</h1>
+        <p class="muted">${t(language, "authLoadingBody")}</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderLoginPage(state) {
+  const language = state.language;
+  const authConfigured = Boolean(state.auth.configured);
+
+  return `
+    <div class="auth-shell">
+      <div class="auth-card">
+        <p class="eyebrow">${t(language, "loginEyebrow")}</p>
+        <h1>${t(language, "loginTitle")}</h1>
+        <p class="muted">${t(language, "loginBody")}</p>
+        ${!authConfigured ? `<div class="error-banner">${t(language, "loginConfigMissing")}</div>` : ""}
+        ${state.auth.error ? `<div class="error-banner">${escapeHtml(state.auth.error)}</div>` : ""}
+        <label class="form-label" for="login-email">${t(language, "loginEmail")}</label>
+        <input
+          id="login-email"
+          class="text-input"
+          type="email"
+          autocomplete="email"
+          value="${escapeAttribute(state.auth.email || "")}"
+          ${authConfigured ? "" : "disabled"}
+        />
+        <label class="form-label" for="login-password">${t(language, "loginPassword")}</label>
+        <input
+          id="login-password"
+          class="text-input"
+          type="password"
+          autocomplete="current-password"
+          value="${escapeAttribute(state.auth.password || "")}"
+          ${authConfigured ? "" : "disabled"}
+        />
+        <div class="auth-actions">
+          <button class="button ${state.auth.loading || !authConfigured ? "button--disabled" : ""}" data-action="submit-login" ${state.auth.loading || !authConfigured ? "disabled" : ""}>
+            ${state.auth.loading ? t(language, "loginWorking") : t(language, "loginSubmit")}
+          </button>
+        </div>
+      </div>
     </div>
   `;
 }

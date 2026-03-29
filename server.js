@@ -9,6 +9,7 @@ import { answerWorkspaceQuestion } from "./server/openai-client.js";
 import { buildKnowledgeComparison, buildKnowledgeFilesFromUpload, deriveKnowledgeStatus, getKnowledgeCategories, normalizeStoredQuoteEstimate, summarizeKnowledgeFile } from "./server/knowledge-service.js";
 import { buildQuoteDraft, buildQuoteEmail } from "./server/quote-service.js";
 import { getCase, getKnowledgeFile, getStoreMode, listCases, listKnowledgeFiles, saveCase, saveKnowledgeFile } from "./server/store.js";
+import { authenticateRequest, getPublicSupabaseConfig } from "./server/supabase-auth.js";
 import { applyCheckpointDecision, syncCaseWorkflow } from "./server/workflow-engine.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,6 +31,26 @@ export async function handleRequest(req, res) {
     }
 
     const url = new URL(req.url, `http://${req.headers.host}`);
+
+    if (url.pathname === "/api/system/status" && req.method === "GET") {
+      return sendJson(res, 200, {
+        system: {
+          backendAvailable: true,
+          aiConfigured: Boolean(String(process.env.OPENAI_API_KEY || "").trim()),
+          model: "gpt-5.2",
+          storageMode: getStoreMode(),
+          supabase: getPublicSupabaseConfig(),
+        },
+      });
+    }
+
+    if (url.pathname.startsWith("/api/")) {
+      const authResult = await ensureApiAuth(req);
+
+      if (!authResult.ok) {
+        return sendJson(res, authResult.statusCode, { error: authResult.error });
+      }
+    }
 
     if (url.pathname === "/api/intake" && req.method === "POST") {
       const formData = await toRequest(req, url).formData();
@@ -54,17 +75,6 @@ export async function handleRequest(req, res) {
       return sendJson(res, 200, {
         cases: cases.map((entry) => summarizeCase(entry)),
         allowedStatuses: getAllowedCaseStatuses(),
-      });
-    }
-
-    if (url.pathname === "/api/system/status" && req.method === "GET") {
-      return sendJson(res, 200, {
-        system: {
-          backendAvailable: true,
-          aiConfigured: Boolean(String(process.env.OPENAI_API_KEY || "").trim()),
-          model: "gpt-5.2",
-          storageMode: getStoreMode(),
-        },
       });
     }
 
@@ -536,6 +546,16 @@ function createQuoteHistoryEntry({ caseRecord, type, title, actor = "system", no
     })),
     emailSubject: caseRecord.quoteEmailDraft?.subject || "",
   };
+}
+
+async function ensureApiAuth(req) {
+  const supabaseConfig = getPublicSupabaseConfig();
+
+  if (!supabaseConfig.configured) {
+    return { ok: true };
+  }
+
+  return authenticateRequest(req);
 }
 
 function matchKnowledgeFileDetailPath(pathname) {
