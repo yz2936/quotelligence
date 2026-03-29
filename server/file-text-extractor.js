@@ -1,6 +1,5 @@
 import path from "node:path";
 import JSZip from "jszip";
-import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 
 export async function extractTextFromBuffer({ fileName, type, buffer }) {
   const normalizedType = String(type || inferType(fileName)).toUpperCase();
@@ -61,6 +60,7 @@ export async function extractWorkbookSheetsFromBuffer({ fileName, type, buffer }
 
 async function extractPdfText(buffer) {
   try {
+    const pdfjs = await loadPdfJs();
     pdfjs.GlobalWorkerOptions.workerSrc = undefined;
     const loadingTask = pdfjs.getDocument({
       data: new Uint8Array(buffer),
@@ -86,6 +86,52 @@ async function extractPdfText(buffer) {
     return sanitizePlainText(pages.join("\n\n"));
   } catch {
     return "";
+  }
+}
+
+let pdfJsModulePromise = null;
+
+async function loadPdfJs() {
+  ensurePdfNodePolyfills();
+
+  if (!pdfJsModulePromise) {
+    pdfJsModulePromise = import("pdfjs-dist/legacy/build/pdf.mjs");
+  }
+
+  return pdfJsModulePromise;
+}
+
+function ensurePdfNodePolyfills() {
+  if (!globalThis.DOMMatrix) {
+    globalThis.DOMMatrix = class DOMMatrix {
+      constructor() {}
+      multiplySelf() { return this; }
+      preMultiplySelf() { return this; }
+      invertSelf() { return this; }
+      translate() { return this; }
+      scale() { return this; }
+    };
+  }
+
+  if (!globalThis.ImageData) {
+    globalThis.ImageData = class ImageData {
+      constructor(data = new Uint8ClampedArray(), width = 0, height = 0) {
+        this.data = data;
+        this.width = width;
+        this.height = height;
+      }
+    };
+  }
+
+  if (!globalThis.Path2D) {
+    globalThis.Path2D = class Path2D {
+      addPath() {}
+      closePath() {}
+      moveTo() {}
+      lineTo() {}
+      bezierCurveTo() {}
+      rect() {}
+    };
   }
 }
 
