@@ -1971,6 +1971,7 @@ async function logout() {
 }
 
 function clearWorkspaceState() {
+  clearCaseCache();
   state.cases = [];
   state.allowedStatuses = [];
   state.selectedCaseId = null;

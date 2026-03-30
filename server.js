@@ -33,6 +33,9 @@ export async function handleRequest(req, res) {
     }
 
     const url = new URL(req.url, `http://${req.headers.host}`);
+    let requestUser = null;
+    let requestOwnerId = "";
+    let requestOwnerEmail = "";
 
     if (url.pathname === "/api/system/status" && req.method === "GET") {
       const storeHealth = await getStoreHealth();
@@ -56,6 +59,10 @@ export async function handleRequest(req, res) {
       if (!authResult.ok) {
         return sendJson(res, authResult.statusCode, { error: authResult.error });
       }
+
+      requestUser = authResult.user || null;
+      requestOwnerId = String(requestUser?.id || "");
+      requestOwnerEmail = String(requestUser?.email || "");
     }
 
     if (url.pathname === "/api/intake" && req.method === "POST") {
@@ -72,12 +79,13 @@ export async function handleRequest(req, res) {
         language,
       });
 
-      await saveCase(createdCase);
-      return sendJson(res, 201, { case: createdCase });
+      const ownedCase = applyRecordOwnership(createdCase, requestOwnerId, requestOwnerEmail);
+      await saveCase(ownedCase, requestOwnerId);
+      return sendJson(res, 201, { case: ownedCase });
     }
 
     if (url.pathname === "/api/cases" && req.method === "GET") {
-      const cases = await listCases();
+      const cases = await listCases(requestOwnerId);
       return sendJson(res, 200, {
         cases: cases.map((entry) => summarizeCase(entry)),
         allowedStatuses: getAllowedCaseStatuses(),
@@ -85,7 +93,7 @@ export async function handleRequest(req, res) {
     }
 
     if (url.pathname === "/api/complaints" && req.method === "GET") {
-      const complaints = await listComplaints();
+      const complaints = await listComplaints(requestOwnerId);
       return sendJson(res, 200, {
         complaints: complaints.map((entry) => summarizeComplaint(entry)),
       });
@@ -106,21 +114,25 @@ export async function handleRequest(req, res) {
         language,
         now: new Date(),
       });
-      const complaint = buildComplaintRecord({
-        complaintTitle,
-        customerName,
-        emailText,
-        attachments,
-        language,
-        now: new Date(),
-      });
+      const complaint = applyRecordOwnership(
+        buildComplaintRecord({
+          complaintTitle,
+          customerName,
+          emailText,
+          attachments: attachments.map((file) => applyRecordOwnership(file, requestOwnerId, requestOwnerEmail)),
+          language,
+          now: new Date(),
+        }),
+        requestOwnerId,
+        requestOwnerEmail
+      );
 
-      await saveComplaint(complaint);
+      await saveComplaint(complaint, requestOwnerId);
       return sendJson(res, 201, { complaint });
     }
 
     if (url.pathname === "/api/knowledge" && req.method === "GET") {
-      const knowledgeFiles = await listKnowledgeFiles();
+      const knowledgeFiles = await listKnowledgeFiles(requestOwnerId);
       return sendJson(res, 200, {
         knowledgeFiles: knowledgeFiles.map(summarizeKnowledgeFileRecord),
         categories: getKnowledgeCategories(),
@@ -131,7 +143,7 @@ export async function handleRequest(req, res) {
       const knowledgeFileId = matchKnowledgeFileDetailPath(url.pathname);
 
       if (knowledgeFileId) {
-        const knowledgeFile = await getKnowledgeFile(knowledgeFileId);
+        const knowledgeFile = await getKnowledgeFile(knowledgeFileId, requestOwnerId);
 
         if (!knowledgeFile) {
           return sendJson(res, 404, { error: "Knowledge file not found" });
@@ -155,10 +167,11 @@ export async function handleRequest(req, res) {
       }
 
       const uploaded = await buildKnowledgeFilesFromUpload({ files, language });
-      await Promise.all(uploaded.map((file) => saveKnowledgeFile(file)));
+      const ownedFiles = uploaded.map((file) => applyRecordOwnership(file, requestOwnerId, requestOwnerEmail));
+      await Promise.all(ownedFiles.map((file) => saveKnowledgeFile(file, requestOwnerId)));
 
       return sendJson(res, 201, {
-        knowledgeFiles: uploaded.map(summarizeKnowledgeFileRecord),
+        knowledgeFiles: ownedFiles.map(summarizeKnowledgeFileRecord),
       });
     }
 
@@ -168,7 +181,7 @@ export async function handleRequest(req, res) {
       if (knowledgeFileId) {
         const payload = await readJsonBody(req);
         const language = String(payload.language || "en");
-        const knowledgeFile = await getKnowledgeFile(knowledgeFileId);
+        const knowledgeFile = await getKnowledgeFile(knowledgeFileId, requestOwnerId);
 
         if (!knowledgeFile) {
           return sendJson(res, 404, { error: "Knowledge file not found" });
@@ -184,7 +197,7 @@ export async function handleRequest(req, res) {
           summary: summary.summary,
         };
 
-        await saveKnowledgeFile(updatedFile);
+        await saveKnowledgeFile(updatedFile, requestOwnerId);
         return sendJson(res, 200, {
           knowledgeFile: detailKnowledgeFile(updatedFile),
         });
@@ -193,7 +206,7 @@ export async function handleRequest(req, res) {
 
     if (url.pathname.startsWith("/api/cases/") && req.method === "GET") {
       const caseId = decodeURIComponent(url.pathname.split("/").pop());
-      const caseRecord = await getCase(caseId);
+      const caseRecord = await getCase(caseId, requestOwnerId);
 
       if (!caseRecord) {
         return sendJson(res, 404, { error: "Case not found" });
@@ -204,7 +217,7 @@ export async function handleRequest(req, res) {
 
     if (url.pathname.startsWith("/api/complaints/") && req.method === "GET") {
       const complaintId = decodeURIComponent(url.pathname.split("/").pop());
-      const complaint = await getComplaint(complaintId);
+      const complaint = await getComplaint(complaintId, requestOwnerId);
 
       if (!complaint) {
         return sendJson(res, 404, { error: "Complaint not found" });
@@ -215,7 +228,7 @@ export async function handleRequest(req, res) {
 
     if (url.pathname.startsWith("/api/cases/") && req.method === "PATCH") {
       const caseId = decodeURIComponent(url.pathname.split("/").pop());
-      const existing = await getCase(caseId);
+      const existing = await getCase(caseId, requestOwnerId);
 
       if (!existing) {
         return sendJson(res, 404, { error: "Case not found" });
@@ -257,13 +270,13 @@ export async function handleRequest(req, res) {
         now: new Date(),
       });
 
-      await saveCase(updated);
+      await saveCase(updated, requestOwnerId);
       return sendJson(res, 200, { case: updated });
     }
 
     if (url.pathname.startsWith("/api/cases/") && req.method === "DELETE") {
       const caseId = decodeURIComponent(url.pathname.split("/").pop());
-      const deleted = await deleteCase(caseId);
+      const deleted = await deleteCase(caseId, requestOwnerId);
 
       if (!deleted) {
         return sendJson(res, 404, { error: "Case not found" });
@@ -278,7 +291,7 @@ export async function handleRequest(req, res) {
       const checkpointDecision = matchCheckpointDecisionPath(url.pathname);
 
       if (checkpointDecision) {
-        const existing = await getCase(checkpointDecision.caseId);
+        const existing = await getCase(checkpointDecision.caseId, requestOwnerId);
 
         if (!existing) {
           return sendJson(res, 404, { error: "Case not found" });
@@ -294,7 +307,7 @@ export async function handleRequest(req, res) {
           now: new Date(),
         });
 
-        await saveCase(updated);
+        await saveCase(updated, requestOwnerId);
         return sendJson(res, 200, { case: updated });
       }
     }
@@ -309,9 +322,9 @@ export async function handleRequest(req, res) {
         return sendJson(res, 400, { error: "Question is required." });
       }
 
-      const cases = source === "all" || source === "cases" ? await listCases() : [];
-      const knowledgeFiles = source === "all" || source === "knowledge" ? await listKnowledgeFiles() : [];
-      const complaints = source === "all" || source === "complaints" ? await listComplaints() : [];
+      const cases = source === "all" || source === "cases" ? await listCases(requestOwnerId) : [];
+      const knowledgeFiles = source === "all" || source === "knowledge" ? await listKnowledgeFiles(requestOwnerId) : [];
+      const complaints = source === "all" || source === "complaints" ? await listComplaints(requestOwnerId) : [];
 
       const answer = await answerWorkspaceQuestion({
         question,
@@ -329,13 +342,13 @@ export async function handleRequest(req, res) {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
       const language = String(payload.language || "en");
-      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot, requestOwnerId, requestOwnerEmail);
 
       if (!caseRecord) {
         return sendJson(res, 404, { error: "Case not found" });
       }
 
-      const knowledgeFiles = await listKnowledgeFiles();
+      const knowledgeFiles = await listKnowledgeFiles(requestOwnerId);
       const comparison = await buildKnowledgeComparison({
         caseRecord,
         knowledgeFiles,
@@ -355,7 +368,7 @@ export async function handleRequest(req, res) {
         },
       });
 
-      await saveCase(updated);
+      await saveCase(updated, requestOwnerId);
       return sendJson(res, 200, {
         comparison,
         case: updated,
@@ -367,13 +380,13 @@ export async function handleRequest(req, res) {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
       const language = String(payload.language || "en");
-      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot, requestOwnerId, requestOwnerEmail);
 
       if (!caseRecord) {
         return sendJson(res, 404, { error: "Case not found" });
       }
 
-      const knowledgeFiles = await listKnowledgeFiles();
+      const knowledgeFiles = await listKnowledgeFiles(requestOwnerId);
       const quoteEstimate = await buildQuoteDraft({
         caseRecord,
         knowledgeFiles,
@@ -402,7 +415,7 @@ export async function handleRequest(req, res) {
         },
       });
 
-      await saveCase(updated);
+      await saveCase(updated, requestOwnerId);
       return sendJson(res, 200, {
         quoteEstimate,
         case: updated,
@@ -413,7 +426,7 @@ export async function handleRequest(req, res) {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
       const language = String(payload.language || "en");
-      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot, requestOwnerId, requestOwnerEmail);
 
       if (!caseRecord) {
         return sendJson(res, 404, { error: "Case not found" });
@@ -473,14 +486,14 @@ export async function handleRequest(req, res) {
         },
       });
 
-      await saveCase(updated);
+      await saveCase(updated, requestOwnerId);
       return sendJson(res, 200, { case: updated });
     }
 
     if (url.pathname === "/api/quote/mark-sent" && req.method === "POST") {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
-      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot, requestOwnerId, requestOwnerEmail);
 
       if (!caseRecord) {
         return sendJson(res, 404, { error: "Case not found" });
@@ -543,7 +556,7 @@ export async function handleRequest(req, res) {
         },
       });
 
-      await saveCase(updated);
+      await saveCase(updated, requestOwnerId);
       return sendJson(res, 200, { case: updated });
     }
 
@@ -551,7 +564,7 @@ export async function handleRequest(req, res) {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
       const language = String(payload.language || "en");
-      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot, requestOwnerId, requestOwnerEmail);
 
       if (!caseRecord) {
         return sendJson(res, 404, { error: "Case not found" });
@@ -593,7 +606,7 @@ export async function handleRequest(req, res) {
         },
       });
 
-      await saveCase(updated);
+      await saveCase(updated, requestOwnerId);
       return sendJson(res, 200, {
         emailDraft,
         case: updated,
@@ -604,7 +617,7 @@ export async function handleRequest(req, res) {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
       const language = String(payload.language || "en");
-      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot, requestOwnerId, requestOwnerEmail);
 
       if (!caseRecord) {
         return sendJson(res, 404, { error: "Case not found" });
@@ -667,12 +680,12 @@ export async function handleRequest(req, res) {
         },
       });
 
-      await saveCase(updated);
+      await saveCase(updated, requestOwnerId);
       return sendJson(res, 200, { case: updated });
     }
 
     if (url.pathname === "/api/outcomes/pending" && req.method === "GET") {
-      const cases = await listCases();
+      const cases = await listCases(requestOwnerId);
       return sendJson(res, 200, {
         items: buildPendingOutcomes(cases),
       });
@@ -681,7 +694,7 @@ export async function handleRequest(req, res) {
     if (url.pathname === "/api/outcomes" && req.method === "POST") {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
-      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot);
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot, requestOwnerId, requestOwnerEmail);
       const result = String(payload.result || "").trim().toLowerCase();
 
       if (!caseRecord) {
@@ -730,12 +743,12 @@ export async function handleRequest(req, res) {
         },
       });
 
-      await saveCase(updated);
+      await saveCase(updated, requestOwnerId);
       return sendJson(res, 200, { case: updated });
     }
 
     if (url.pathname === "/api/dashboard/stats" && req.method === "GET") {
-      const cases = await listCases();
+      const cases = await listCases(requestOwnerId);
       return sendJson(res, 200, {
         stats: buildDashboardStats(cases),
       });
@@ -1247,8 +1260,8 @@ function normalizeCaseSnapshot(value, expectedCaseId) {
   return value;
 }
 
-async function resolveCaseRecord(caseId, caseSnapshotValue) {
-  const existing = await getCase(caseId);
+async function resolveCaseRecord(caseId, caseSnapshotValue, ownerUserId = "", ownerEmail = "") {
+  const existing = await getCase(caseId, ownerUserId);
 
   if (existing) {
     return existing;
@@ -1260,8 +1273,25 @@ async function resolveCaseRecord(caseId, caseSnapshotValue) {
     return null;
   }
 
-  await saveCase(caseSnapshot);
-  return caseSnapshot;
+  const ownedSnapshot = applyRecordOwnership(caseSnapshot, ownerUserId, ownerEmail);
+  await saveCase(ownedSnapshot, ownerUserId);
+  return ownedSnapshot;
+}
+
+function applyRecordOwnership(record, ownerUserId = "", ownerEmail = "") {
+  const normalizedOwnerId = String(ownerUserId || "").trim();
+  const normalizedOwnerEmail = String(ownerEmail || "").trim();
+
+  if (!normalizedOwnerId) {
+    return record;
+  }
+
+  return {
+    ...record,
+    ownerUserId: normalizedOwnerId,
+    ownerEmail: normalizedOwnerEmail || record.ownerEmail || "",
+    owner: record.owner || normalizedOwnerEmail || "",
+  };
 }
 
 function matchKnowledgeFileDetailPath(pathname) {

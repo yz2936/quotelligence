@@ -28,172 +28,237 @@ export async function getStoreHealth() {
   return { mode: "file", healthy: true };
 }
 
-export async function listCases() {
+export async function listCases(ownerUserId = "") {
   if (shouldUseDatabase()) {
     await ensureDatabaseSchema();
-    const result = await getPool().query(
-      `
-        SELECT data
-        FROM cases
-        ORDER BY COALESCE(created_at, '') DESC, case_id DESC
-      `
-    );
+    const scope = normalizeOwnerScope(ownerUserId);
+    const result = scope
+      ? await getPool().query(
+          `
+            SELECT data
+            FROM cases
+            WHERE owner_user_id = $1
+            ORDER BY COALESCE(created_at, '') DESC, case_id DESC
+          `,
+          [scope]
+        )
+      : await getPool().query(
+          `
+            SELECT data
+            FROM cases
+            ORDER BY COALESCE(created_at, '') DESC, case_id DESC
+          `
+        );
 
     return result.rows.map((row) => hydrateJsonRecord(row.data));
   }
 
   const store = loadFileStore();
-  return [...store.cases].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  return store.cases
+    .filter((entry) => matchesOwnerScope(entry, ownerUserId))
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
 }
 
-export async function listComplaints() {
+export async function listComplaints(ownerUserId = "") {
   if (shouldUseDatabase()) {
     await ensureDatabaseSchema();
-    const result = await getPool().query(
-      `
-        SELECT data
-        FROM complaints
-        ORDER BY COALESCE(created_at, '') DESC, complaint_id DESC
-      `
-    );
+    const scope = normalizeOwnerScope(ownerUserId);
+    const result = scope
+      ? await getPool().query(
+          `
+            SELECT data
+            FROM complaints
+            WHERE owner_user_id = $1
+            ORDER BY COALESCE(created_at, '') DESC, complaint_id DESC
+          `,
+          [scope]
+        )
+      : await getPool().query(
+          `
+            SELECT data
+            FROM complaints
+            ORDER BY COALESCE(created_at, '') DESC, complaint_id DESC
+          `
+        );
 
     return result.rows.map((row) => hydrateJsonRecord(row.data));
   }
 
   const store = loadFileStore();
-  return [...store.complaints].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  return store.complaints
+    .filter((entry) => matchesOwnerScope(entry, ownerUserId))
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
 }
 
-export async function getComplaint(complaintId) {
+export async function getComplaint(complaintId, ownerUserId = "") {
   if (shouldUseDatabase()) {
     await ensureDatabaseSchema();
-    const result = await getPool().query(
-      `
-        SELECT data
-        FROM complaints
-        WHERE complaint_id = $1
-        LIMIT 1
-      `,
-      [complaintId]
-    );
+    const scope = normalizeOwnerScope(ownerUserId);
+    const result = scope
+      ? await getPool().query(
+          `
+            SELECT data
+            FROM complaints
+            WHERE complaint_id = $1 AND owner_user_id = $2
+            LIMIT 1
+          `,
+          [complaintId, scope]
+        )
+      : await getPool().query(
+          `
+            SELECT data
+            FROM complaints
+            WHERE complaint_id = $1
+            LIMIT 1
+          `,
+          [complaintId]
+        );
 
     return result.rowCount ? hydrateJsonRecord(result.rows[0].data) : null;
   }
 
   const store = loadFileStore();
-  return store.complaints.find((entry) => entry.complaintId === complaintId) || null;
+  return store.complaints.find((entry) => entry.complaintId === complaintId && matchesOwnerScope(entry, ownerUserId)) || null;
 }
 
-export async function saveComplaint(complaintRecord) {
+export async function saveComplaint(complaintRecord, ownerUserId = "") {
+  const recordToSave = withOwnerScope(complaintRecord, ownerUserId);
+
   if (shouldUseDatabase()) {
     await ensureDatabaseSchema();
     await getPool().query(
       `
-        INSERT INTO complaints (complaint_id, created_at, updated_at, data)
-        VALUES ($1, $2, $3, $4::jsonb)
+        INSERT INTO complaints (complaint_id, owner_user_id, created_at, updated_at, data)
+        VALUES ($1, $2, $3, $4, $5::jsonb)
         ON CONFLICT (complaint_id) DO UPDATE
-        SET created_at = EXCLUDED.created_at,
+        SET owner_user_id = EXCLUDED.owner_user_id,
+            created_at = EXCLUDED.created_at,
             updated_at = EXCLUDED.updated_at,
             data = EXCLUDED.data,
             stored_at = NOW()
       `,
       [
-        complaintRecord.complaintId,
-        String(complaintRecord.createdAt || ""),
-        String(complaintRecord.updatedAt || complaintRecord.createdAt || ""),
-        JSON.stringify(complaintRecord),
+        recordToSave.complaintId,
+        String(recordToSave.ownerUserId || ""),
+        String(recordToSave.createdAt || ""),
+        String(recordToSave.updatedAt || recordToSave.createdAt || ""),
+        JSON.stringify(recordToSave),
       ]
     );
 
-    return complaintRecord;
+    return recordToSave;
   }
 
   const store = loadFileStore();
-  const existingIndex = store.complaints.findIndex((entry) => entry.complaintId === complaintRecord.complaintId);
+  const existingIndex = store.complaints.findIndex((entry) => entry.complaintId === recordToSave.complaintId);
 
   if (existingIndex >= 0) {
-    store.complaints[existingIndex] = complaintRecord;
+    store.complaints[existingIndex] = recordToSave;
   } else {
-    store.complaints.push(complaintRecord);
+    store.complaints.push(recordToSave);
   }
 
   writeFileStore(store);
-  return complaintRecord;
+  return recordToSave;
 }
 
-export async function getCase(caseId) {
+export async function getCase(caseId, ownerUserId = "") {
   if (shouldUseDatabase()) {
     await ensureDatabaseSchema();
-    const result = await getPool().query(
-      `
-        SELECT data
-        FROM cases
-        WHERE case_id = $1
-        LIMIT 1
-      `,
-      [caseId]
-    );
+    const scope = normalizeOwnerScope(ownerUserId);
+    const result = scope
+      ? await getPool().query(
+          `
+            SELECT data
+            FROM cases
+            WHERE case_id = $1 AND owner_user_id = $2
+            LIMIT 1
+          `,
+          [caseId, scope]
+        )
+      : await getPool().query(
+          `
+            SELECT data
+            FROM cases
+            WHERE case_id = $1
+            LIMIT 1
+          `,
+          [caseId]
+        );
 
     return result.rowCount ? hydrateJsonRecord(result.rows[0].data) : null;
   }
 
   const store = loadFileStore();
-  return store.cases.find((entry) => entry.caseId === caseId) || null;
+  return store.cases.find((entry) => entry.caseId === caseId && matchesOwnerScope(entry, ownerUserId)) || null;
 }
 
-export async function saveCase(caseRecord) {
+export async function saveCase(caseRecord, ownerUserId = "") {
+  const recordToSave = withOwnerScope(caseRecord, ownerUserId);
+
   if (shouldUseDatabase()) {
     await ensureDatabaseSchema();
     await getPool().query(
       `
-        INSERT INTO cases (case_id, created_at, updated_at, data)
-        VALUES ($1, $2, $3, $4::jsonb)
+        INSERT INTO cases (case_id, owner_user_id, created_at, updated_at, data)
+        VALUES ($1, $2, $3, $4, $5::jsonb)
         ON CONFLICT (case_id) DO UPDATE
-        SET created_at = EXCLUDED.created_at,
+        SET owner_user_id = EXCLUDED.owner_user_id,
+            created_at = EXCLUDED.created_at,
             updated_at = EXCLUDED.updated_at,
             data = EXCLUDED.data,
             stored_at = NOW()
       `,
       [
-        caseRecord.caseId,
-        String(caseRecord.createdAt || ""),
-        String(caseRecord.updatedAt || caseRecord.createdAt || ""),
-        JSON.stringify(caseRecord),
+        recordToSave.caseId,
+        String(recordToSave.ownerUserId || ""),
+        String(recordToSave.createdAt || ""),
+        String(recordToSave.updatedAt || recordToSave.createdAt || ""),
+        JSON.stringify(recordToSave),
       ]
     );
 
-    return caseRecord;
+    return recordToSave;
   }
 
   const store = loadFileStore();
-  const existingIndex = store.cases.findIndex((entry) => entry.caseId === caseRecord.caseId);
+  const existingIndex = store.cases.findIndex((entry) => entry.caseId === recordToSave.caseId);
 
   if (existingIndex >= 0) {
-    store.cases[existingIndex] = caseRecord;
+    store.cases[existingIndex] = recordToSave;
   } else {
-    store.cases.push(caseRecord);
+    store.cases.push(recordToSave);
   }
 
   writeFileStore(store);
-  return caseRecord;
+  return recordToSave;
 }
 
-export async function deleteCase(caseId) {
+export async function deleteCase(caseId, ownerUserId = "") {
   if (shouldUseDatabase()) {
     await ensureDatabaseSchema();
-    const result = await getPool().query(
-      `
-        DELETE FROM cases
-        WHERE case_id = $1
-      `,
-      [caseId]
-    );
+    const scope = normalizeOwnerScope(ownerUserId);
+    const result = scope
+      ? await getPool().query(
+          `
+            DELETE FROM cases
+            WHERE case_id = $1 AND owner_user_id = $2
+          `,
+          [caseId, scope]
+        )
+      : await getPool().query(
+          `
+            DELETE FROM cases
+            WHERE case_id = $1
+          `,
+          [caseId]
+        );
 
     return result.rowCount > 0;
   }
 
   const store = loadFileStore();
-  const nextCases = store.cases.filter((entry) => entry.caseId !== caseId);
+  const nextCases = store.cases.filter((entry) => !(entry.caseId === caseId && matchesOwnerScope(entry, ownerUserId)));
 
   if (nextCases.length === store.cases.length) {
     return false;
@@ -206,77 +271,105 @@ export async function deleteCase(caseId) {
   return true;
 }
 
-export async function listKnowledgeFiles() {
+export async function listKnowledgeFiles(ownerUserId = "") {
   if (shouldUseDatabase()) {
     await ensureDatabaseSchema();
-    const result = await getPool().query(
-      `
-        SELECT data
-        FROM knowledge_files
-        ORDER BY COALESCE(uploaded_at, '') DESC, knowledge_file_id DESC
-      `
-    );
+    const scope = normalizeOwnerScope(ownerUserId);
+    const result = scope
+      ? await getPool().query(
+          `
+            SELECT data
+            FROM knowledge_files
+            WHERE owner_user_id = $1
+            ORDER BY COALESCE(uploaded_at, '') DESC, knowledge_file_id DESC
+          `,
+          [scope]
+        )
+      : await getPool().query(
+          `
+            SELECT data
+            FROM knowledge_files
+            ORDER BY COALESCE(uploaded_at, '') DESC, knowledge_file_id DESC
+          `
+        );
 
     return result.rows.map((row) => hydrateJsonRecord(row.data));
   }
 
   const store = loadFileStore();
-  return [...store.knowledgeFiles].sort((a, b) => String(b.uploadedAt || "").localeCompare(String(a.uploadedAt || "")));
+  return store.knowledgeFiles
+    .filter((entry) => matchesOwnerScope(entry, ownerUserId))
+    .sort((a, b) => String(b.uploadedAt || "").localeCompare(String(a.uploadedAt || "")));
 }
 
-export async function getKnowledgeFile(knowledgeFileId) {
+export async function getKnowledgeFile(knowledgeFileId, ownerUserId = "") {
   if (shouldUseDatabase()) {
     await ensureDatabaseSchema();
-    const result = await getPool().query(
-      `
-        SELECT data
-        FROM knowledge_files
-        WHERE knowledge_file_id = $1
-        LIMIT 1
-      `,
-      [knowledgeFileId]
-    );
+    const scope = normalizeOwnerScope(ownerUserId);
+    const result = scope
+      ? await getPool().query(
+          `
+            SELECT data
+            FROM knowledge_files
+            WHERE knowledge_file_id = $1 AND owner_user_id = $2
+            LIMIT 1
+          `,
+          [knowledgeFileId, scope]
+        )
+      : await getPool().query(
+          `
+            SELECT data
+            FROM knowledge_files
+            WHERE knowledge_file_id = $1
+            LIMIT 1
+          `,
+          [knowledgeFileId]
+        );
 
     return result.rowCount ? hydrateJsonRecord(result.rows[0].data) : null;
   }
 
   const store = loadFileStore();
-  return store.knowledgeFiles.find((entry) => entry.knowledgeFileId === knowledgeFileId) || null;
+  return store.knowledgeFiles.find((entry) => entry.knowledgeFileId === knowledgeFileId && matchesOwnerScope(entry, ownerUserId)) || null;
 }
 
-export async function saveKnowledgeFile(knowledgeFile) {
+export async function saveKnowledgeFile(knowledgeFile, ownerUserId = "") {
+  const recordToSave = withOwnerScope(knowledgeFile, ownerUserId);
+
   if (shouldUseDatabase()) {
     await ensureDatabaseSchema();
     await getPool().query(
       `
-        INSERT INTO knowledge_files (knowledge_file_id, uploaded_at, data)
-        VALUES ($1, $2, $3::jsonb)
+        INSERT INTO knowledge_files (knowledge_file_id, owner_user_id, uploaded_at, data)
+        VALUES ($1, $2, $3, $4::jsonb)
         ON CONFLICT (knowledge_file_id) DO UPDATE
-        SET uploaded_at = EXCLUDED.uploaded_at,
+        SET owner_user_id = EXCLUDED.owner_user_id,
+            uploaded_at = EXCLUDED.uploaded_at,
             data = EXCLUDED.data,
             stored_at = NOW()
       `,
       [
-        knowledgeFile.knowledgeFileId,
-        String(knowledgeFile.uploadedAt || ""),
-        JSON.stringify(knowledgeFile),
+        recordToSave.knowledgeFileId,
+        String(recordToSave.ownerUserId || ""),
+        String(recordToSave.uploadedAt || ""),
+        JSON.stringify(recordToSave),
       ]
     );
 
-    return knowledgeFile;
+    return recordToSave;
   }
 
   const store = loadFileStore();
-  const existingIndex = store.knowledgeFiles.findIndex((entry) => entry.knowledgeFileId === knowledgeFile.knowledgeFileId);
+  const existingIndex = store.knowledgeFiles.findIndex((entry) => entry.knowledgeFileId === recordToSave.knowledgeFileId);
 
   if (existingIndex >= 0) {
-    store.knowledgeFiles[existingIndex] = knowledgeFile;
+    store.knowledgeFiles[existingIndex] = recordToSave;
   } else {
-    store.knowledgeFiles.push(knowledgeFile);
+    store.knowledgeFiles.push(recordToSave);
   }
 
   writeFileStore(store);
-  return knowledgeFile;
+  return recordToSave;
 }
 
 export function getStoreMode() {
@@ -327,31 +420,40 @@ async function ensureDatabaseSchema() {
         await client.query(`
           CREATE TABLE IF NOT EXISTS cases (
             case_id TEXT PRIMARY KEY,
+            owner_user_id TEXT,
             created_at TEXT,
             updated_at TEXT,
             data JSONB NOT NULL,
             stored_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
           )
         `);
+        await client.query(`ALTER TABLE cases ADD COLUMN IF NOT EXISTS owner_user_id TEXT`);
+        await client.query(`CREATE INDEX IF NOT EXISTS cases_owner_user_id_idx ON cases (owner_user_id)`);
 
         await client.query(`
           CREATE TABLE IF NOT EXISTS knowledge_files (
             knowledge_file_id TEXT PRIMARY KEY,
+            owner_user_id TEXT,
             uploaded_at TEXT,
             data JSONB NOT NULL,
             stored_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
           )
         `);
+        await client.query(`ALTER TABLE knowledge_files ADD COLUMN IF NOT EXISTS owner_user_id TEXT`);
+        await client.query(`CREATE INDEX IF NOT EXISTS knowledge_files_owner_user_id_idx ON knowledge_files (owner_user_id)`);
 
         await client.query(`
           CREATE TABLE IF NOT EXISTS complaints (
             complaint_id TEXT PRIMARY KEY,
+            owner_user_id TEXT,
             created_at TEXT,
             updated_at TEXT,
             data JSONB NOT NULL,
             stored_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
           )
         `);
+        await client.query(`ALTER TABLE complaints ADD COLUMN IF NOT EXISTS owner_user_id TEXT`);
+        await client.query(`CREATE INDEX IF NOT EXISTS complaints_owner_user_id_idx ON complaints (owner_user_id)`);
       } finally {
         client.release();
       }
@@ -412,6 +514,33 @@ function hydrateJsonRecord(value) {
   }
 
   return value;
+}
+
+function normalizeOwnerScope(ownerUserId) {
+  return String(ownerUserId || "").trim();
+}
+
+function matchesOwnerScope(record, ownerUserId) {
+  const scope = normalizeOwnerScope(ownerUserId);
+
+  if (!scope) {
+    return true;
+  }
+
+  return String(record?.ownerUserId || "").trim() === scope;
+}
+
+function withOwnerScope(record, ownerUserId) {
+  const scope = normalizeOwnerScope(ownerUserId);
+
+  if (!scope) {
+    return record;
+  }
+
+  return {
+    ...record,
+    ownerUserId: scope,
+  };
 }
 
 function loadFileStore() {

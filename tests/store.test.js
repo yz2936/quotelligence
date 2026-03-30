@@ -83,3 +83,64 @@ test("store deletes cases and reports healthy file storage", async () => {
   assert.equal(health.mode, "file");
   assert.equal(health.healthy, true);
 });
+
+test("store scopes cases by owner user id when provided", async () => {
+  const storePath = path.join(os.tmpdir(), `quotelligence-store-test-${Date.now()}-owners.json`);
+  __resetStoreForTests(storePath);
+
+  await saveCase(
+    {
+      caseId: "QC-U1",
+      createdAt: "2026-03-29",
+      customerName: "User One",
+    },
+    "user-1"
+  );
+  await saveCase(
+    {
+      caseId: "QC-U2",
+      createdAt: "2026-03-29",
+      customerName: "User Two",
+    },
+    "user-2"
+  );
+
+  assert.equal((await listCases("user-1")).length, 1);
+  assert.equal((await listCases("user-1"))[0].caseId, "QC-U1");
+  assert.equal((await listCases("user-2")).length, 1);
+  assert.equal((await listCases("user-2"))[0].caseId, "QC-U2");
+  assert.equal(await getCase("QC-U2", "user-1"), null);
+});
+
+test("store scopes complaints and knowledge files by owner user id when provided", async () => {
+  const storePath = path.join(os.tmpdir(), `quotelligence-store-test-${Date.now()}-owned-assets.json`);
+  __resetStoreForTests(storePath);
+
+  await saveComplaint(
+    {
+      complaintId: "CMP-U1",
+      createdAt: "2026-03-29T12:00:00.000Z",
+      updatedAt: "2026-03-29T12:00:00.000Z",
+      complaintTitle: "User one complaint",
+      customerName: "HeatEx",
+      summary: "Complaint for user one.",
+      attachments: [],
+    },
+    "user-1"
+  );
+  await saveKnowledgeFile(
+    {
+      knowledgeFileId: "KF-U2",
+      uploadedAt: "2026-03-29T12:00:00.000Z",
+      name: "user-two-pricing.xlsx",
+    },
+    "user-2"
+  );
+
+  assert.equal((await listComplaints("user-1")).length, 1);
+  assert.equal((await listComplaints("user-2")).length, 0);
+  assert.equal((await listKnowledgeFiles("user-2")).length, 1);
+  assert.equal((await listKnowledgeFiles("user-1")).length, 0);
+  assert.equal(await getComplaint("CMP-U1", "user-2"), null);
+  assert.equal(await getKnowledgeFile("KF-U2", "user-1"), null);
+});
