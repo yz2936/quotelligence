@@ -53,13 +53,13 @@ export function renderApp(root, state, currentHash) {
           <p>${t(language, "appSubtitle")}</p>
         </div>
         <nav class="sidebar__nav">
+          ${renderNavLink("#/dashboard", t(language, "dashboardNav"), activeRoute, svgDashboardIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/intake", t(language, "chatIntake"), activeRoute, svgIntakeIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/case", t(language, "caseWorkspace"), activeRoute, svgCaseIcon(), state.sidebarCollapsed)}
-          ${renderNavLink("#/knowledge", t(language, "knowledgeLibraryNav"), activeRoute, svgKnowledgeIcon(), state.sidebarCollapsed)}
-          ${renderNavLink("#/complaints", t(language, "complaintsNav"), activeRoute, svgComplaintIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/quote", t(language, "quoteBuilderNav"), activeRoute, svgQuoteIcon(), state.sidebarCollapsed)}
+          ${renderNavLink("#/complaints", t(language, "complaintsNav"), activeRoute, svgComplaintIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/outcomes", t(language, "outcomesNav"), activeRoute, svgOutcomeIcon(), state.sidebarCollapsed)}
-          ${renderNavLink("#/dashboard", t(language, "dashboardNav"), activeRoute, svgDashboardIcon(), state.sidebarCollapsed)}
+          ${renderNavLink("#/knowledge", t(language, "knowledgeLibraryNav"), activeRoute, svgKnowledgeIcon(), state.sidebarCollapsed)}
         </nav>
         <section class="sidebar__panel">
           <p class="eyebrow">${t(language, "latestCase")}</p>
