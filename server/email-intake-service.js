@@ -12,6 +12,10 @@ export function getEmailIntakeConfig() {
   const folder = String(process.env.IMAP_FOLDER || "INBOX").trim() || "INBOX";
   const processedFolder = String(process.env.IMAP_PROCESSED_FOLDER || "").trim();
   const maxMessagesPerSync = Math.max(1, Number(process.env.IMAP_MAX_MESSAGES_PER_SYNC || 10));
+  const connectTimeoutMs = Math.max(1000, Number(process.env.IMAP_CONNECT_TIMEOUT_MS || 8000));
+  const greetingTimeoutMs = Math.max(1000, Number(process.env.IMAP_GREETING_TIMEOUT_MS || 8000));
+  const socketTimeoutMs = Math.max(3000, Number(process.env.IMAP_SOCKET_TIMEOUT_MS || 15000));
+  const tlsRejectUnauthorized = normalizeBooleanEnv(process.env.IMAP_TLS_REJECT_UNAUTHORIZED, true);
 
   return {
     configured: Boolean(host && port && user && password && folder),
@@ -23,6 +27,10 @@ export function getEmailIntakeConfig() {
     folder,
     processedFolder,
     maxMessagesPerSync,
+    connectTimeoutMs,
+    greetingTimeoutMs,
+    socketTimeoutMs,
+    tlsRejectUnauthorized,
   };
 }
 
@@ -49,9 +57,15 @@ export async function syncEmailIntakeMailbox({ ownerUserId = "", ownerEmail = ""
     host: config.host,
     port: config.port,
     secure: config.secure,
+    connectionTimeout: config.connectTimeoutMs,
+    greetingTimeout: config.greetingTimeoutMs,
+    socketTimeout: config.socketTimeoutMs,
     auth: {
       user: config.user,
       pass: config.password,
+    },
+    tls: {
+      rejectUnauthorized: config.tlsRejectUnauthorized,
     },
     logger: false,
   });
@@ -59,6 +73,7 @@ export async function syncEmailIntakeMailbox({ ownerUserId = "", ownerEmail = ""
   const createdCases = [];
   const processedMessages = [];
   const failures = [];
+  let scannedCount = 0;
   let lock = null;
 
   try {
@@ -74,6 +89,8 @@ export async function syncEmailIntakeMailbox({ ownerUserId = "", ownerEmail = ""
       if (processedCount >= config.maxMessagesPerSync) {
         break;
       }
+
+      scannedCount += 1;
 
       const fileName = buildMailboxMessageFileName(message);
       const emailPackage = extractEmailPackageFromBuffer({
@@ -122,6 +139,8 @@ export async function syncEmailIntakeMailbox({ ownerUserId = "", ownerEmail = ""
         });
       }
     }
+  } catch (error) {
+    throw new Error(buildMailboxSyncError(error));
   } finally {
     lock?.release();
     await client.logout().catch(() => {});
@@ -131,6 +150,7 @@ export async function syncEmailIntakeMailbox({ ownerUserId = "", ownerEmail = ""
     createdCases,
     processedMessages,
     failures,
+    scannedCount,
     mailbox: {
       user: config.user,
       folder: config.folder,
@@ -192,4 +212,22 @@ function formatEnvelopeAddresses(entries) {
     .map((entry) => `${entry.name || ""}${entry.address ? ` <${entry.address}>` : ""}`.trim())
     .filter(Boolean)
     .join(", ");
+}
+
+function buildMailboxSyncError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (/self-signed certificate|unable to verify the first certificate|certificate/i.test(message)) {
+    return "Mailbox TLS certificate validation failed. Set IMAP_TLS_REJECT_UNAUTHORIZED=false only if you trust this mail server.";
+  }
+
+  if (/authentication/i.test(message)) {
+    return "Mailbox authentication failed. Verify IMAP_USER and IMAP_PASSWORD.";
+  }
+
+  if (/timeout|timed out|greeting/i.test(message)) {
+    return "Mailbox connection timed out. Verify the IMAP host, port, firewall access, and TLS settings.";
+  }
+
+  return `Mailbox sync failed: ${message}`;
 }

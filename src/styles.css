@@ -1582,6 +1582,70 @@ td.case-table__actions .button { display: inline-flex; }
 .intake-activity-item__dot--done { background: var(--success); }
 .intake-activity-item__dot--waiting { background: var(--warning); }
 
+.mailbox-sync-card {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel-secondary);
+  display: grid;
+  gap: 14px;
+}
+
+.mailbox-sync-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.mailbox-sync-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mailbox-sync-stat {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--panel);
+  display: grid;
+  gap: 4px;
+}
+
+.mailbox-sync-stat span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.mailbox-sync-stat strong {
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text);
+}
+
+.mailbox-sync-results {
+  display: grid;
+  gap: 10px;
+}
+
+.mailbox-sync-result {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+
+.mailbox-sync-result--waiting {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+}
+
 /* ── Product Editor ─────────────────────────────────────── */
 .product-toolbar {
   display: flex;

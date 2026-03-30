@@ -112,6 +112,7 @@ export async function handleRequest(req, res) {
       }
 
       return sendJson(res, 200, {
+        scannedCount: syncResult.scannedCount,
         importedCount: savedCases.length,
         failedCount: syncResult.failures.length,
         mailbox: syncResult.mailbox,

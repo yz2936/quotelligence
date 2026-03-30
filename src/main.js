@@ -67,6 +67,13 @@ const state = {
     message: "",
     activity: [],
     emailSyncing: false,
+    emailSyncSummary: {
+      lastSyncedAt: "",
+      scannedCount: 0,
+      importedCount: 0,
+      failedCount: 0,
+      items: [],
+    },
   },
   cases: [],
   allowedStatuses: [],
@@ -1006,24 +1013,92 @@ async function runEmailIntakeSync() {
   state.error = "";
   state.intake = {
     ...state.intake,
+    parsingStatus: "Parsing",
+    progress: 8,
     emailSyncing: true,
     message:
       state.language === "zh"
         ? "正在同步 RFQ 邮箱并导入新邮件。"
         : "Syncing the RFQ mailbox and importing new emails.",
+    activity: [
+      createIntakeActivity(
+        "running",
+        state.language === "zh" ? "正在连接 IMAP 邮箱" : "Connecting to the IMAP mailbox"
+      ),
+    ],
   };
   mount();
 
   try {
-    const response = await syncEmailIntake(state.language);
+    const syncPromise = syncEmailIntake(state.language);
+    await tickEmailSyncProgress(
+      24,
+      state.language === "zh" ? "已连接邮箱，正在读取 RFQ Intake 文件夹。" : "Connected to the mailbox and reading the RFQ Intake folder.",
+      state.language === "zh" ? "已连接邮箱" : "Mailbox connection established"
+    );
+    await tickEmailSyncProgress(
+      46,
+      state.language === "zh" ? "正在扫描队列中的邮件并提取附件。" : "Scanning queued emails and extracting attachments.",
+      state.language === "zh" ? "正在扫描邮件与附件" : "Scanning emails and attachments"
+    );
+    const response = await syncPromise;
+    await tickEmailSyncProgress(
+      72,
+      state.language === "zh" ? "正在创建案例并写入数据库。" : "Creating cases and saving them to the database.",
+      state.language === "zh" ? "正在创建案例记录" : "Creating case records"
+    );
     const { cases, allowedStatuses } = await loadCaseSummaries();
     state.cases = cases;
     state.allowedStatuses = allowedStatuses;
     reconcileSelectedCases();
+    const resultItems = [
+      ...(response.processedMessages || []).map((item) => ({
+        status: "done",
+        text:
+          state.language === "zh"
+            ? `已导入: ${item.subject || "(无主题)"}`
+            : `Imported: ${item.subject || "(No subject)"}`,
+        meta:
+          state.language === "zh"
+            ? `${item.from || "未知发件人"} · 附件 ${item.attachmentCount || 0} 个`
+            : `${item.from || "Unknown sender"} · ${item.attachmentCount || 0} attachment(s)`,
+      })),
+      ...(response.failures || []).map((item) => ({
+        status: "waiting",
+        text:
+          state.language === "zh"
+            ? `失败: ${item.subject || "(无主题)"}`
+            : `Failed: ${item.subject || "(No subject)"}`,
+        meta: item.error || "",
+      })),
+    ];
+    state.intake.emailSyncSummary = {
+      lastSyncedAt: new Date().toISOString(),
+      scannedCount: Number(response.scannedCount || 0),
+      importedCount: Number(response.importedCount || 0),
+      failedCount: Number(response.failedCount || 0),
+      items: resultItems,
+    };
     state.intake.message =
-      state.language === "zh"
-        ? `已从 ${response.mailbox.user} / ${response.mailbox.folder} 导入 ${response.importedCount} 封邮件，失败 ${response.failedCount} 封。`
-        : `Imported ${response.importedCount} email(s) from ${response.mailbox.user} / ${response.mailbox.folder}, with ${response.failedCount} failure(s).`;
+      Number(response.scannedCount || 0) === 0
+        ? state.language === "zh"
+          ? `未在 ${response.mailbox.user} / ${response.mailbox.folder} 中发现待处理邮件。`
+          : `No queued emails were found in ${response.mailbox.user} / ${response.mailbox.folder}.`
+        : state.language === "zh"
+          ? `已扫描 ${response.scannedCount} 封邮件，导入 ${response.importedCount} 封，失败 ${response.failedCount} 封。`
+          : `Scanned ${response.scannedCount} email(s), imported ${response.importedCount}, failed ${response.failedCount}.`;
+    state.intake.activity = [
+      createIntakeActivity("done", state.language === "zh" ? "邮箱连接完成" : "Mailbox connection complete"),
+      createIntakeActivity("done", state.language === "zh" ? "邮件扫描完成" : "Mailbox scan complete"),
+      createIntakeActivity(
+        response.failedCount ? "waiting" : "done",
+        state.language === "zh"
+          ? `同步完成：导入 ${response.importedCount} 封，失败 ${response.failedCount} 封`
+          : `Sync complete: imported ${response.importedCount}, failed ${response.failedCount}`
+      ),
+    ];
+    state.intake.progress = 100;
+    state.intake.parsingStatus = "Ready for Review";
   } finally {
     state.intake = {
       ...state.intake,
@@ -1031,6 +1106,17 @@ async function runEmailIntakeSync() {
     };
     mount();
   }
+}
+
+async function tickEmailSyncProgress(progress, message, activityText) {
+  state.intake = {
+    ...state.intake,
+    progress,
+    message,
+    activity: [...(state.intake.activity || []), createIntakeActivity("running", activityText)],
+  };
+  mount();
+  await new Promise((resolve) => window.setTimeout(resolve, 180));
 }
 
 async function tickProgress(progress, message) {

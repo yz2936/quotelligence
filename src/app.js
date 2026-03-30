@@ -268,11 +268,62 @@ function renderIntakeScreen(state) {
                   `).join("")}
                 </div>`
               : ""}
+            ${renderMailboxSyncPanel(state)}
           </div>
         </div>
       </div>
     `,
   };
+}
+
+function renderMailboxSyncPanel(state) {
+  const language = state.language;
+  const summary = state.intake.emailSyncSummary || {};
+  const hasSummary = Boolean(summary.lastSyncedAt || state.intake.emailSyncing);
+
+  if (!hasSummary) {
+    return "";
+  }
+
+  return `
+    <div class="mailbox-sync-card">
+      <div class="mailbox-sync-card__header">
+        <div>
+          <p class="eyebrow">${t(language, "mailboxSyncTitle")}</p>
+          <p class="muted">${
+            summary.lastSyncedAt
+              ? `${t(language, "mailboxLastSync")}: ${escapeHtml(formatDateTime(summary.lastSyncedAt, language))}`
+              : t(language, "mailboxSyncInProgress")
+          }</p>
+        </div>
+      </div>
+      <div class="mailbox-sync-stats">
+        <div class="mailbox-sync-stat"><span>${t(language, "mailboxScanned")}</span><strong>${escapeHtml(String(summary.scannedCount || 0))}</strong></div>
+        <div class="mailbox-sync-stat"><span>${t(language, "mailboxImported")}</span><strong>${escapeHtml(String(summary.importedCount || 0))}</strong></div>
+        <div class="mailbox-sync-stat"><span>${t(language, "mailboxFailed")}</span><strong>${escapeHtml(String(summary.failedCount || 0))}</strong></div>
+      </div>
+      <div class="mailbox-sync-results">
+        <p class="eyebrow">${t(language, "mailboxResultsTitle")}</p>
+        ${
+          summary.items?.length
+            ? summary.items
+                .map(
+                  (item) => `
+                    <div class="mailbox-sync-result mailbox-sync-result--${item.status}">
+                      <span class="intake-activity-item__dot intake-activity-item__dot--${item.status}"></span>
+                      <div>
+                        <p>${escapeHtml(item.text || "")}</p>
+                        ${item.meta ? `<p class="muted">${escapeHtml(item.meta)}</p>` : ""}
+                      </div>
+                    </div>
+                  `
+                )
+                .join("")
+            : `<p class="muted">${t(language, "mailboxNoResultsYet")}</p>`
+        }
+      </div>
+    </div>
+  `;
 }
 
 function renderCaseWorkspace(state) {
@@ -1582,6 +1633,22 @@ function escapeHtml(value) {
 
 function escapeAttribute(value) {
   return escapeHtml(value).replaceAll('"', "&quot;");
+}
+
+function formatDateTime(value, language) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function formatMoneyValue(currency, value) {
