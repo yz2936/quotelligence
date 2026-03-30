@@ -63,6 +63,18 @@ export async function fetchSystemStatus() {
   return handleJson(response);
 }
 
+export async function syncEmailIntake(language) {
+  const response = await apiFetch("/api/email-intake/sync", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ language }),
+  });
+
+  return handleJson(response);
+}
+
 export async function updateCase(caseId, payload) {
   const response = await apiFetch(`/api/cases/${encodeURIComponent(caseId)}`, {
     method: "PATCH",

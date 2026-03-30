@@ -234,6 +234,7 @@ function renderIntakeScreen(state) {
               <div class="intake-simple__toolbar-left">
                 <button class="button button--secondary" data-action="open-file-picker">${t(language, "uploadRfqFiles")}</button>
                 <button class="button button--secondary" data-action="connect-email-thread">${t(language, "connectEmailThread")}</button>
+                <button class="button button--secondary ${state.intake.emailSyncing || !state.system.emailIntake?.configured ? "button--disabled" : ""}" data-action="sync-email-intake" ${state.intake.emailSyncing || !state.system.emailIntake?.configured ? "disabled" : ""}>${state.intake.emailSyncing ? t(language, "syncingMailbox") : t(language, "syncMailbox")}</button>
               </div>
               <button class="button ${canParse ? "" : "button--disabled"}" data-action="start-intake-parse" ${canParse ? "" : "disabled"}>${t(language, "createCase")}</button>
             </div>
@@ -246,6 +247,11 @@ function renderIntakeScreen(state) {
             <div class="progress-bar">
               <span style="width: ${state.intake.progress}%"></span>
             </div>
+            <p class="muted">
+              ${state.system.emailIntake?.configured
+                ? `${t(language, "mailboxConfigured")}: ${escapeHtml(state.system.emailIntake.user)} · ${escapeHtml(state.system.emailIntake.folder)}`
+                : t(language, "mailboxNotConfigured")}
+            </p>
             <p class="muted">${state.intake.message || t(language, "intakeDescription")}</p>
             ${state.intakeDraft.files.length
               ? `<div class="tag-list">${state.intakeDraft.files

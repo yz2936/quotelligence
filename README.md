@@ -19,6 +19,14 @@ Quotelligence is a browser-based RFQ intake and quote-workshop tool. It parses u
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_PUBLISHABLE_KEY` as an alternative to `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `IMAP_HOST`
+- `IMAP_PORT`
+- `IMAP_SECURE`
+- `IMAP_USER`
+- `IMAP_PASSWORD`
+- `IMAP_FOLDER`
+- `IMAP_PROCESSED_FOLDER`
+- `IMAP_MAX_MESSAGES_PER_SYNC`
 - `PORT` for local development only
 
 ## Auth and storage
@@ -29,6 +37,31 @@ Quotelligence is a browser-based RFQ intake and quote-workshop tool. It parses u
 - Users can create an account directly from the login screen.
 - Backend API requests validate Supabase bearer tokens with `SUPABASE_SERVICE_ROLE_KEY` when Supabase auth is configured.
 - Case and knowledge data persist in Postgres through `DATABASE_URL`, `POSTGRES_URL`, or `STORAGE_POSTGRES_URL`.
+
+## Email intake
+
+Quotelligence can pull RFQ emails directly from an IMAP mailbox and auto-create cases from the email body plus attachments.
+
+Set these mailbox variables:
+
+- `IMAP_HOST`
+- `IMAP_PORT`
+- `IMAP_SECURE`
+- `IMAP_USER`
+- `IMAP_PASSWORD`
+- `IMAP_FOLDER`
+- `IMAP_PROCESSED_FOLDER` optional but recommended
+- `IMAP_MAX_MESSAGES_PER_SYNC`
+
+Recommended flow:
+
+1. Create or reuse a mailbox for RFQs.
+2. Route RFQ emails into a dedicated IMAP folder such as `RFQ Intake`.
+3. In the app, open `Chat Intake`.
+4. Click `Sync RFQ Mailbox`.
+5. Quotelligence imports unread emails from that folder, parses the email body and attachments, and creates cases.
+
+If `IMAP_PROCESSED_FOLDER` is set, imported emails are moved there after a successful sync. Otherwise they are marked as read in the source folder.
 
 ## Database reset
 
@@ -55,6 +88,14 @@ Vercel project settings must include:
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_PUBLISHABLE_KEY` as an alternative to `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `IMAP_HOST`
+- `IMAP_PORT`
+- `IMAP_SECURE`
+- `IMAP_USER`
+- `IMAP_PASSWORD`
+- `IMAP_FOLDER`
+- `IMAP_PROCESSED_FOLDER`
+- `IMAP_MAX_MESSAGES_PER_SYNC`
 
 The runtime also accepts Vercel storage-injected equivalents such as:
 

@@ -21,6 +21,7 @@ import {
   generateQuoteEmail,
   generateQuoteEstimate,
   queryWorkspace,
+  syncEmailIntake,
   submitCheckpointDecision,
   summarizeKnowledgeFile,
   updateCase,
@@ -65,6 +66,7 @@ const state = {
     progress: 0,
     message: "",
     activity: [],
+    emailSyncing: false,
   },
   cases: [],
   allowedStatuses: [],
@@ -86,6 +88,13 @@ const state = {
       configured: false,
       url: "",
       anonKey: "",
+    },
+    emailIntake: {
+      configured: false,
+      user: "",
+      folder: "",
+      processedFolder: "",
+      maxMessagesPerSync: 10,
     },
   },
   auth: {
@@ -260,6 +269,12 @@ root.addEventListener("click", async (event) => {
           ? "Customer: HeatEx Procurement Team\n请报价不锈钢无缝管，目的地为新加坡，要求 EN 10204 3.1 文件。请说明是否支持见证检验和 NACE 要求。"
           : "Customer: HeatEx Procurement Team\nPlease quote stainless seamless pipe for Singapore with EN 10204 3.1 documentation. Please advise on witness inspection and NACE compliance support.";
       mount();
+      return;
+    }
+
+    if (action === "sync-email-intake") {
+      event.preventDefault();
+      await runEmailIntakeSync();
       return;
     }
 
@@ -899,6 +914,13 @@ async function syncSystemStatus() {
         url: "",
         anonKey: "",
       },
+      emailIntake: {
+        configured: false,
+        user: "",
+        folder: "",
+        processedFolder: "",
+        maxMessagesPerSync: 10,
+      },
     };
     state.auth.ready = true;
     state.auth.configured = false;
@@ -974,6 +996,41 @@ async function submitIntake() {
   state.selectedCase = response.case;
   state.modalOpen = true;
   mount();
+}
+
+async function runEmailIntakeSync() {
+  if (!state.system.emailIntake?.configured || state.intake.emailSyncing) {
+    return;
+  }
+
+  state.error = "";
+  state.intake = {
+    ...state.intake,
+    emailSyncing: true,
+    message:
+      state.language === "zh"
+        ? "正在同步 RFQ 邮箱并导入新邮件。"
+        : "Syncing the RFQ mailbox and importing new emails.",
+  };
+  mount();
+
+  try {
+    const response = await syncEmailIntake(state.language);
+    const { cases, allowedStatuses } = await loadCaseSummaries();
+    state.cases = cases;
+    state.allowedStatuses = allowedStatuses;
+    reconcileSelectedCases();
+    state.intake.message =
+      state.language === "zh"
+        ? `已从 ${response.mailbox.user} / ${response.mailbox.folder} 导入 ${response.importedCount} 封邮件，失败 ${response.failedCount} 封。`
+        : `Imported ${response.importedCount} email(s) from ${response.mailbox.user} / ${response.mailbox.folder}, with ${response.failedCount} failure(s).`;
+  } finally {
+    state.intake = {
+      ...state.intake,
+      emailSyncing: false,
+    };
+    mount();
+  }
 }
 
 async function tickProgress(progress, message) {

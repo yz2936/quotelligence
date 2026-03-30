@@ -8,10 +8,11 @@
     "dev": "node server.js",
     "start": "node server.js",
     "reset-db": "node scripts/reset-db.mjs",
-    "test": "node --check server.js && node --check api/[...path].js && node --check server/env.js && node --check server/file-text-extractor.js && node --check server/openai-client.js && node --check server/intake-service.js && node --check server/knowledge-service.js && node --check server/quote-decision-engine.js && node --check server/quote-service.js && node --check server/store.js && node --check server/supabase-auth.js && node --check server/workflow-engine.js && node --check src/api.js && node --check src/main.js && node --check src/app.js && node --check src/supabase.js && node --check src/ui.js && node --test tests/*.test.js"
+    "test": "node --check server.js && node --check api/[...path].js && node --check server/email-intake-service.js && node --check server/env.js && node --check server/file-text-extractor.js && node --check server/openai-client.js && node --check server/intake-service.js && node --check server/knowledge-service.js && node --check server/quote-decision-engine.js && node --check server/quote-service.js && node --check server/store.js && node --check server/supabase-auth.js && node --check server/workflow-engine.js && node --check src/api.js && node --check src/main.js && node --check src/app.js && node --check src/supabase.js && node --check src/ui.js && node --test tests/*.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.100.1",
+    "imapflow": "^1.2.18",
     "jszip": "^3.10.1",
     "pdfjs-dist": "^5.5.207",
     "pdfkit": "^0.18.0",

@@ -3,6 +3,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { getEmailIntakePublicConfig, syncEmailIntakeMailbox } from "./server/email-intake-service.js";
 import { loadEnv } from "./server/env.js";
 import { buildCaseFromSubmission, deriveCaseStatus, deriveMissingInfo, getAllowedCaseStatuses } from "./server/intake-service.js";
 import { answerWorkspaceQuestion } from "./server/openai-client.js";
@@ -49,6 +50,7 @@ export async function handleRequest(req, res) {
           storageHealthy: storeHealth.healthy,
           storageDetails: storeHealth.details || "",
           supabase: getPublicSupabaseConfig(),
+          emailIntake: getEmailIntakePublicConfig(),
         },
       });
     }
@@ -89,6 +91,33 @@ export async function handleRequest(req, res) {
       return sendJson(res, 200, {
         cases: cases.map((entry) => summarizeCase(entry)),
         allowedStatuses: getAllowedCaseStatuses(),
+      });
+    }
+
+    if (url.pathname === "/api/email-intake/sync" && req.method === "POST") {
+      const payload = await readJsonBody(req);
+      const language = String(payload.language || "en");
+      const syncResult = await syncEmailIntakeMailbox({
+        ownerUserId: requestOwnerId,
+        ownerEmail: requestOwnerEmail,
+        language,
+        now: new Date(),
+      });
+
+      const savedCases = [];
+
+      for (const caseRecord of syncResult.createdCases) {
+        const saved = await saveCase(caseRecord, requestOwnerId);
+        savedCases.push(saved);
+      }
+
+      return sendJson(res, 200, {
+        importedCount: savedCases.length,
+        failedCount: syncResult.failures.length,
+        mailbox: syncResult.mailbox,
+        processedMessages: syncResult.processedMessages,
+        failures: syncResult.failures,
+        cases: savedCases.map(summarizeCase),
       });
     }
 
