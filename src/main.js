@@ -2,8 +2,11 @@ import { renderApp } from "./app.js";
 import {
   approveQuote,
   compareKnowledge,
+  createComplaintRecord,
   createCaseFromIntake,
   deleteCase as deleteCaseRequest,
+  fetchComplaint,
+  fetchComplaints,
   fetchDashboardStats,
   fetchCase,
   fetchCases,
@@ -111,6 +114,17 @@ const state = {
     previewOpen: false,
     selectedFile: null,
     summaryLoadingId: "",
+  },
+  complaints: {
+    items: [],
+    selected: null,
+    creating: false,
+    draft: {
+      title: "",
+      customerName: "",
+      emailText: "",
+      files: [],
+    },
   },
   quote: {
     selectedCaseId: null,
@@ -271,6 +285,12 @@ root.addEventListener("click", async (event) => {
       return;
     }
 
+    if (action === "open-complaint-file-picker") {
+      event.preventDefault();
+      root.querySelector("#complaint-file-input")?.click();
+      return;
+    }
+
     if (action === "open-quote") {
       event.preventDefault();
       const caseId = target.dataset.caseId || "";
@@ -363,6 +383,18 @@ root.addEventListener("click", async (event) => {
     if (action === "open-case") {
       event.preventDefault();
       await openCase(target.dataset.caseId);
+      return;
+    }
+
+    if (action === "open-complaint") {
+      event.preventDefault();
+      await openComplaint(target.dataset.complaintId);
+      return;
+    }
+
+    if (action === "create-complaint") {
+      event.preventDefault();
+      await submitComplaint();
       return;
     }
 
@@ -477,6 +509,27 @@ root.addEventListener("change", async (event) => {
 
       await submitKnowledgeUpload(files);
       target.value = "";
+      return;
+    }
+
+    if (target.id === "complaint-file-input") {
+      state.complaints.draft.files = Array.from(target.files || []);
+      mount();
+      return;
+    }
+
+    if (target.id === "complaint-title") {
+      state.complaints.draft.title = target.value;
+      return;
+    }
+
+    if (target.id === "complaint-customer") {
+      state.complaints.draft.customerName = target.value;
+      return;
+    }
+
+    if (target.id === "complaint-email-context") {
+      state.complaints.draft.emailText = target.value;
       return;
     }
 
@@ -696,6 +749,21 @@ root.addEventListener("input", (event) => {
     return;
   }
 
+  if (target.id === "complaint-title") {
+    state.complaints.draft.title = target.value;
+    return;
+  }
+
+  if (target.id === "complaint-customer") {
+    state.complaints.draft.customerName = target.value;
+    return;
+  }
+
+  if (target.id === "complaint-email-context") {
+    state.complaints.draft.emailText = target.value;
+    return;
+  }
+
   if (target.id === "login-email") {
     state.auth.email = target.value;
     return;
@@ -719,6 +787,7 @@ async function syncRouteData() {
   const needsCaseData =
     window.location.hash === "#/case" ||
     window.location.hash === "#/knowledge" ||
+    window.location.hash === "#/complaints" ||
     window.location.hash === "#/outcomes" ||
     window.location.hash === "#/dashboard" ||
     window.location.hash === "#/quote" ||
@@ -742,6 +811,21 @@ async function syncRouteData() {
         const knowledgeResponse = await fetchKnowledgeBase();
         state.knowledge.files = knowledgeResponse.knowledgeFiles;
         state.knowledge.categories = knowledgeResponse.categories;
+      }
+
+      if (window.location.hash === "#/complaints") {
+        const response = await fetchComplaints();
+        state.complaints.items = response.complaints;
+
+        if (state.complaints.selected?.complaintId) {
+          const detail = await fetchComplaint(state.complaints.selected.complaintId);
+          state.complaints.selected = detail.complaint;
+        } else if (response.complaints[0]?.complaintId) {
+          const detail = await fetchComplaint(response.complaints[0].complaintId);
+          state.complaints.selected = detail.complaint;
+        } else {
+          state.complaints.selected = null;
+        }
       }
 
       if (window.location.hash === "#/outcomes") {
@@ -947,6 +1031,16 @@ async function openCase(caseId) {
   mount();
 }
 
+async function openComplaint(complaintId) {
+  if (!complaintId) {
+    return;
+  }
+
+  const response = await fetchComplaint(complaintId);
+  state.complaints.selected = response.complaint;
+  mount();
+}
+
 async function deleteCase(caseId) {
   if (!caseId) {
     return;
@@ -1000,6 +1094,39 @@ async function submitKnowledgeUpload(files) {
         : `${response.knowledgeFiles.length} knowledge files uploaded.`;
   } finally {
     state.knowledge.uploading = false;
+    mount();
+  }
+}
+
+async function submitComplaint() {
+  const draft = state.complaints.draft;
+
+  if (!draft.title.trim() && !draft.customerName.trim() && !draft.emailText.trim() && !draft.files.length) {
+    return;
+  }
+
+  state.error = "";
+  state.complaints.creating = true;
+  mount();
+
+  try {
+    const response = await createComplaintRecord({
+      complaintTitle: draft.title,
+      customerName: draft.customerName,
+      emailText: draft.emailText,
+      files: draft.files,
+      language: state.language,
+    });
+    state.complaints.items = [buildComplaintSummary(response.complaint), ...state.complaints.items];
+    state.complaints.selected = response.complaint;
+    state.complaints.draft = {
+      title: "",
+      customerName: "",
+      emailText: "",
+      files: [],
+    };
+  } finally {
+    state.complaints.creating = false;
     mount();
   }
 }
@@ -1597,6 +1724,19 @@ function buildCaseSummary(caseRecord) {
           blendedMarginPct: Number(normalizedCase.quoteEstimate.blendedMarginPct || 0),
         }
       : null,
+  };
+}
+
+function buildComplaintSummary(complaint) {
+  return {
+    complaintId: complaint.complaintId,
+    complaintTitle: complaint.complaintTitle,
+    customerName: complaint.customerName,
+    status: complaint.status,
+    createdAt: complaint.createdAt,
+    updatedAt: complaint.updatedAt,
+    attachmentCount: Array.isArray(complaint.attachments) ? complaint.attachments.length : 0,
+    summary: complaint.summary,
   };
 }
 

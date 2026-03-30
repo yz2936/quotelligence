@@ -23,6 +23,36 @@ export async function fetchCases() {
   return handleJson(response);
 }
 
+export async function fetchComplaints() {
+  const response = await apiFetch("/api/complaints");
+  return handleJson(response);
+}
+
+export async function fetchComplaint(complaintId) {
+  const response = await apiFetch(`/api/complaints/${encodeURIComponent(complaintId)}`);
+  return handleJson(response);
+}
+
+export async function createComplaintRecord({ complaintTitle, customerName, emailText, files, language }) {
+  const formData = new FormData();
+
+  formData.append("complaint_title", complaintTitle);
+  formData.append("customer_name", customerName);
+  formData.append("email_text", emailText);
+  formData.append("language", language);
+
+  for (const file of files) {
+    formData.append("complaint_files", file);
+  }
+
+  const response = await apiFetch("/api/complaints", {
+    method: "POST",
+    body: formData,
+  });
+
+  return handleJson(response);
+}
+
 export async function fetchCase(caseId) {
   const response = await apiFetch(`/api/cases/${encodeURIComponent(caseId)}`);
   return handleJson(response);

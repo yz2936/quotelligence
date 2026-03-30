@@ -46,6 +46,81 @@ export async function listCases() {
   return [...store.cases].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
 }
 
+export async function listComplaints() {
+  if (shouldUseDatabase()) {
+    await ensureDatabaseSchema();
+    const result = await getPool().query(
+      `
+        SELECT data
+        FROM complaints
+        ORDER BY COALESCE(created_at, '') DESC, complaint_id DESC
+      `
+    );
+
+    return result.rows.map((row) => hydrateJsonRecord(row.data));
+  }
+
+  const store = loadFileStore();
+  return [...store.complaints].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+}
+
+export async function getComplaint(complaintId) {
+  if (shouldUseDatabase()) {
+    await ensureDatabaseSchema();
+    const result = await getPool().query(
+      `
+        SELECT data
+        FROM complaints
+        WHERE complaint_id = $1
+        LIMIT 1
+      `,
+      [complaintId]
+    );
+
+    return result.rowCount ? hydrateJsonRecord(result.rows[0].data) : null;
+  }
+
+  const store = loadFileStore();
+  return store.complaints.find((entry) => entry.complaintId === complaintId) || null;
+}
+
+export async function saveComplaint(complaintRecord) {
+  if (shouldUseDatabase()) {
+    await ensureDatabaseSchema();
+    await getPool().query(
+      `
+        INSERT INTO complaints (complaint_id, created_at, updated_at, data)
+        VALUES ($1, $2, $3, $4::jsonb)
+        ON CONFLICT (complaint_id) DO UPDATE
+        SET created_at = EXCLUDED.created_at,
+            updated_at = EXCLUDED.updated_at,
+            data = EXCLUDED.data,
+            stored_at = NOW()
+      `,
+      [
+        complaintRecord.complaintId,
+        String(complaintRecord.createdAt || ""),
+        String(complaintRecord.updatedAt || complaintRecord.createdAt || ""),
+        JSON.stringify(complaintRecord),
+      ]
+    );
+
+    return complaintRecord;
+  }
+
+  const store = loadFileStore();
+  const existingIndex = store.complaints.findIndex((entry) => entry.complaintId === complaintRecord.complaintId);
+
+  if (existingIndex >= 0) {
+    store.complaints[existingIndex] = complaintRecord;
+  } else {
+    store.complaints.push(complaintRecord);
+  }
+
+  writeFileStore(store);
+  return complaintRecord;
+}
+
 export async function getCase(caseId) {
   if (shouldUseDatabase()) {
     await ensureDatabaseSchema();
@@ -267,6 +342,16 @@ async function ensureDatabaseSchema() {
             stored_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
           )
         `);
+
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS complaints (
+            complaint_id TEXT PRIMARY KEY,
+            created_at TEXT,
+            updated_at TEXT,
+            data JSONB NOT NULL,
+            stored_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `);
       } finally {
         client.release();
       }
@@ -336,11 +421,13 @@ function loadFileStore() {
 
     return {
       cases: Array.isArray(parsed?.cases) ? parsed.cases : [],
+      complaints: Array.isArray(parsed?.complaints) ? parsed.complaints : [],
       knowledgeFiles: Array.isArray(parsed?.knowledgeFiles) ? parsed.knowledgeFiles : [],
     };
   } catch {
     return {
       cases: [],
+      complaints: [],
       knowledgeFiles: [],
     };
   }

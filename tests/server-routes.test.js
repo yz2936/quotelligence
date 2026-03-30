@@ -62,6 +62,50 @@ test("delete case route removes a stored case", async () => {
   assert.equal(JSON.parse(response.body).deletedCaseId, "QC-DELETE");
 });
 
+test("complaints routes store and return complaint records", async () => {
+  __resetStoreForTests();
+
+  const formData = new FormData();
+  formData.append("complaint_title", "Damaged shipment");
+  formData.append("customer_name", "HeatEx");
+  formData.append("email_text", "Customer reported bent tubes on arrival.");
+  formData.append("language", "en");
+  formData.append("complaint_files", new File(["inspection notes"], "inspection.txt", { type: "text/plain" }));
+
+  const request = new Request("http://localhost/api/complaints", {
+    method: "POST",
+    body: formData,
+  });
+
+  const createResponse = await invokeRoute({
+    method: "POST",
+    url: "/api/complaints",
+    headers: Object.fromEntries(request.headers.entries()),
+    body: Buffer.from(await request.arrayBuffer()),
+  });
+
+  assert.equal(createResponse.statusCode, 201);
+  const created = JSON.parse(createResponse.body).complaint;
+  assert.equal(created.customerName, "HeatEx");
+  assert.equal(created.attachments.length, 1);
+
+  const listResponse = await invokeRoute({
+    method: "GET",
+    url: "/api/complaints",
+  });
+
+  assert.equal(listResponse.statusCode, 200);
+  assert.equal(JSON.parse(listResponse.body).complaints.length, 1);
+
+  const detailResponse = await invokeRoute({
+    method: "GET",
+    url: `/api/complaints/${created.complaintId}`,
+  });
+
+  assert.equal(detailResponse.statusCode, 200);
+  assert.equal(JSON.parse(detailResponse.body).complaint.complaintTitle, "Damaged shipment");
+});
+
 test("quote approval route blocks red lines without final prices", async () => {
   __resetStoreForTests();
   await saveCase({

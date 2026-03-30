@@ -10,6 +10,7 @@ const routes = {
   "#/intake": renderIntakeScreen,
   "#/case": renderCaseWorkspace,
   "#/knowledge": renderKnowledgeComparison,
+  "#/complaints": renderComplaintsPage,
   "#/quote": renderQuoteWorkspace,
   "#/outcomes": renderOutcomesPage,
   "#/dashboard": renderDashboardPage,
@@ -55,6 +56,7 @@ export function renderApp(root, state, currentHash) {
           ${renderNavLink("#/intake", t(language, "chatIntake"), activeRoute, svgIntakeIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/case", t(language, "caseWorkspace"), activeRoute, svgCaseIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/knowledge", t(language, "knowledgeLibraryNav"), activeRoute, svgKnowledgeIcon(), state.sidebarCollapsed)}
+          ${renderNavLink("#/complaints", t(language, "complaintsNav"), activeRoute, svgComplaintIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/quote", t(language, "quoteBuilderNav"), activeRoute, svgQuoteIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/outcomes", t(language, "outcomesNav"), activeRoute, svgOutcomeIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/dashboard", t(language, "dashboardNav"), activeRoute, svgDashboardIcon(), state.sidebarCollapsed)}
@@ -193,6 +195,10 @@ function svgKnowledgeIcon() {
 
 function svgQuoteIcon() {
   return `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M9.5 1.5H3a1 1 0 00-1 1v10a1 1 0 001 1h9a1 1 0 001-1V5.5L9.5 1.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M9.5 1.5V5.5H13.5M5 8.5h5M5 11h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function svgComplaintIcon() {
+  return `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 2.5h9a1 1 0 011 1v6a1 1 0 01-1 1H7l-3 2v-2H3a1 1 0 01-1-1v-6a1 1 0 011-1z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M5 5.5h5M5 8h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
 }
 
 function svgOutcomeIcon() {
@@ -710,6 +716,115 @@ function renderKnowledgeComparison(state) {
       </div>
     `,
   };
+}
+
+function renderComplaintsPage(state) {
+  const language = state.language;
+  const selectedComplaint = state.complaints.selected;
+
+  return {
+    title: t(language, "complaintsNav"),
+    body: `
+      <div class="content-stack knowledge-stack">
+        ${renderSection({
+          title: t(language, "complaintsTitle"),
+          description: t(language, "complaintsDescription"),
+          language,
+          body: `
+            <label class="form-label" for="complaint-title">${t(language, "complaintTitleLabel")}</label>
+            <input id="complaint-title" class="text-input" type="text" value="${escapeAttribute(state.complaints.draft.title || "")}" />
+            <label class="form-label" for="complaint-customer">${t(language, "complaintCustomerLabel")}</label>
+            <input id="complaint-customer" class="text-input" type="text" value="${escapeAttribute(state.complaints.draft.customerName || "")}" />
+            <label class="form-label" for="complaint-email-context">${t(language, "complaintEmailContextLabel")}</label>
+            <textarea id="complaint-email-context" class="text-area text-area--compact" placeholder="${t(language, "complaintEmailPlaceholder")}">${escapeHtml(state.complaints.draft.emailText || "")}</textarea>
+            <div class="intake-actions">
+              <button class="button button--secondary" data-action="open-complaint-file-picker">${t(language, "uploadComplaintFiles")}</button>
+              <input id="complaint-file-input" class="visually-hidden" type="file" multiple />
+              <button class="button ${state.complaints.creating ? "button--disabled" : ""}" data-action="create-complaint" ${state.complaints.creating ? "disabled" : ""}>${t(language, "createComplaint")}</button>
+            </div>
+            ${
+              state.complaints.draft.files.length
+                ? `<p class="muted">${escapeHtml(state.complaints.draft.files.map((file) => file.name).join(", "))}</p>`
+                : ""
+            }
+            ${renderComplaintTable(state.complaints.items, language)}
+          `,
+        })}
+        ${
+          selectedComplaint
+            ? `
+              <div class="summary-card">
+                <div class="result-card__header">
+                  <div>
+                    <p class="eyebrow">${t(language, "complaintDetailTitle")}</p>
+                    <h3>${escapeHtml(selectedComplaint.complaintTitle)}</h3>
+                    <p class="muted">${escapeHtml(selectedComplaint.customerName)} • ${escapeHtml(selectedComplaint.status)}</p>
+                  </div>
+                </div>
+                <div class="content-grid">
+                  <article class="summary-card">
+                    <p class="eyebrow">${t(language, "complaintSummary")}</p>
+                    <p>${escapeHtml(selectedComplaint.summary || t(language, "noneLabel"))}</p>
+                  </article>
+                  <article class="summary-card">
+                    <p class="eyebrow">${t(language, "complaintAttachments")}</p>
+                    ${renderTagList((selectedComplaint.attachments || []).map((file) => `${file.name} · ${file.category}`), language)}
+                  </article>
+                </div>
+                <div class="summary-card">
+                  <p class="eyebrow">${t(language, "complaintEmailContextLabel")}</p>
+                  <pre class="email-draft">${escapeHtml(selectedComplaint.emailText || t(language, "noneLabel"))}</pre>
+                </div>
+              </div>
+            `
+            : ""
+        }
+      </div>
+    `,
+  };
+}
+
+function renderComplaintTable(items, language) {
+  if (!items.length) {
+    return `<p class="muted">${t(language, "noComplaintsYet")}</p>`;
+  }
+
+  return `
+    <div class="table-shell">
+      <table class="case-table">
+        <thead>
+          <tr>
+            <th>${t(language, "complaintTitleLabel")}</th>
+            <th>${t(language, "complaintCustomerLabel")}</th>
+            <th>${t(language, "updatedCol")}</th>
+            <th>${t(language, "complaintAttachments")}</th>
+            <th>${t(language, "complaintSummary")}</th>
+            <th>${t(language, "actions")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items
+            .map(
+              (item) => `
+                <tr class="case-table__row">
+                  <td><strong>${escapeHtml(item.complaintTitle)}</strong></td>
+                  <td>${escapeHtml(item.customerName)}</td>
+                  <td>${escapeHtml(String(item.updatedAt || item.createdAt || "").slice(0, 10))}</td>
+                  <td>${escapeHtml(String(item.attachmentCount || 0))}</td>
+                  <td>${escapeHtml(item.summary || t(language, "noneLabel"))}</td>
+                  <td>
+                    <button class="button button--small button--secondary" data-action="open-complaint" data-complaint-id="${item.complaintId}">
+                      ${t(language, "openComplaint")}
+                    </button>
+                  </td>
+                </tr>
+              `
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 function renderQuoteWorkspace(state) {

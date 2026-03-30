@@ -8,7 +8,7 @@ import { buildCaseFromSubmission, deriveCaseStatus, deriveMissingInfo, getAllowe
 import { answerWorkspaceQuestion } from "./server/openai-client.js";
 import { buildKnowledgeComparison, buildKnowledgeFilesFromUpload, deriveKnowledgeStatus, getKnowledgeCategories, normalizeStoredQuoteEstimate, summarizeKnowledgeFile } from "./server/knowledge-service.js";
 import { buildQuoteDraft, buildQuoteEmail, buildQuoteDocument } from "./server/quote-service.js";
-import { deleteCase, getCase, getKnowledgeFile, getStoreHealth, getStoreMode, listCases, listKnowledgeFiles, saveCase, saveKnowledgeFile } from "./server/store.js";
+import { deleteCase, getCase, getComplaint, getKnowledgeFile, getStoreHealth, getStoreMode, listCases, listComplaints, listKnowledgeFiles, saveCase, saveComplaint, saveKnowledgeFile } from "./server/store.js";
 import { authenticateRequest, getPublicSupabaseConfig } from "./server/supabase-auth.js";
 import { applyCheckpointDecision, syncCaseWorkflow } from "./server/workflow-engine.js";
 
@@ -82,6 +82,41 @@ export async function handleRequest(req, res) {
         cases: cases.map((entry) => summarizeCase(entry)),
         allowedStatuses: getAllowedCaseStatuses(),
       });
+    }
+
+    if (url.pathname === "/api/complaints" && req.method === "GET") {
+      const complaints = await listComplaints();
+      return sendJson(res, 200, {
+        complaints: complaints.map((entry) => summarizeComplaint(entry)),
+      });
+    }
+
+    if (url.pathname === "/api/complaints" && req.method === "POST") {
+      const formData = await toRequest(req, url).formData();
+      const complaintTitle = String(formData.get("complaint_title") || "").trim();
+      const customerName = String(formData.get("customer_name") || "").trim();
+      const emailText = String(formData.get("email_text") || "").trim();
+      const language = String(formData.get("language") || "en");
+      const files = formData
+        .getAll("complaint_files")
+        .filter((value) => typeof value === "object" && value !== null && "arrayBuffer" in value);
+
+      const attachments = await buildKnowledgeFilesFromUpload({
+        files,
+        language,
+        now: new Date(),
+      });
+      const complaint = buildComplaintRecord({
+        complaintTitle,
+        customerName,
+        emailText,
+        attachments,
+        language,
+        now: new Date(),
+      });
+
+      await saveComplaint(complaint);
+      return sendJson(res, 201, { complaint });
     }
 
     if (url.pathname === "/api/knowledge" && req.method === "GET") {
@@ -165,6 +200,17 @@ export async function handleRequest(req, res) {
       }
 
       return sendJson(res, 200, { case: caseRecord });
+    }
+
+    if (url.pathname.startsWith("/api/complaints/") && req.method === "GET") {
+      const complaintId = decodeURIComponent(url.pathname.split("/").pop());
+      const complaint = await getComplaint(complaintId);
+
+      if (!complaint) {
+        return sendJson(res, 404, { error: "Complaint not found" });
+      }
+
+      return sendJson(res, 200, { complaint });
     }
 
     if (url.pathname.startsWith("/api/cases/") && req.method === "PATCH") {
@@ -774,12 +820,49 @@ function summarizeKnowledgeFileRecord(file) {
   };
 }
 
+function summarizeComplaint(complaint) {
+  return {
+    complaintId: complaint.complaintId,
+    complaintTitle: complaint.complaintTitle,
+    customerName: complaint.customerName,
+    status: complaint.status,
+    createdAt: complaint.createdAt,
+    updatedAt: complaint.updatedAt,
+    attachmentCount: Array.isArray(complaint.attachments) ? complaint.attachments.length : 0,
+    summary: complaint.summary,
+  };
+}
+
 function detailKnowledgeFile(file) {
   return {
     ...summarizeKnowledgeFileRecord(file),
     previewText: String(file.extractedText || "").slice(0, 6000),
     previewAvailable: Boolean(file.extractedText),
     workbookPreview: file.workbookPreview || null,
+  };
+}
+
+function buildComplaintRecord({ complaintTitle, customerName, emailText, attachments, language, now }) {
+  const createdAt = now.toISOString();
+  const summarySource =
+    emailText ||
+    (attachments || [])
+      .map((file) => file.summary || file.name)
+      .filter(Boolean)
+      .join(" ");
+
+  return {
+    complaintId: `CMP-${createdAt.replace(/[-:TZ.]/g, "").slice(0, 14)}`,
+    complaintTitle: complaintTitle || (language === "zh" ? "客户投诉" : "Customer Complaint"),
+    customerName: customerName || (language === "zh" ? "未命名客户" : "Unnamed Customer"),
+    status: "Open",
+    createdAt,
+    updatedAt: createdAt,
+    emailText,
+    attachments: attachments || [],
+    summary:
+      summarySource.replace(/\s+/g, " ").trim().slice(0, 240) ||
+      (language === "zh" ? "已记录投诉内容，等待处理。" : "Complaint captured and ready for review."),
   };
 }
 

@@ -8,11 +8,14 @@ import {
   __resetStoreForTests,
   deleteCase,
   getCase,
+  getComplaint,
   getKnowledgeFile,
   getStoreHealth,
   listCases,
+  listComplaints,
   listKnowledgeFiles,
   saveCase,
+  saveComplaint,
   saveKnowledgeFile,
 } from "../server/store.js";
 
@@ -39,6 +42,27 @@ test("store persists cases and knowledge files to disk-backed state", async () =
   const persisted = JSON.parse(fs.readFileSync(storePath, "utf8"));
   assert.equal(persisted.cases.length, 1);
   assert.equal(persisted.knowledgeFiles.length, 1);
+});
+
+test("store persists complaints alongside other file-backed data", async () => {
+  const storePath = path.join(os.tmpdir(), `quotelligence-store-test-${Date.now()}-complaints.json`);
+  __resetStoreForTests(storePath);
+
+  await saveComplaint({
+    complaintId: "CMP-100",
+    createdAt: "2026-03-29T12:00:00.000Z",
+    updatedAt: "2026-03-29T12:00:00.000Z",
+    complaintTitle: "Damaged delivery",
+    customerName: "HeatEx",
+    summary: "Customer reported transit damage.",
+    attachments: [],
+  });
+
+  assert.equal((await getComplaint("CMP-100"))?.customerName, "HeatEx");
+  assert.equal((await listComplaints()).length, 1);
+
+  const persisted = JSON.parse(fs.readFileSync(storePath, "utf8"));
+  assert.equal(persisted.complaints.length, 1);
 });
 
 test("store deletes cases and reports healthy file storage", async () => {
