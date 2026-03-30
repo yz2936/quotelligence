@@ -67,7 +67,10 @@ export async function syncEmailIntakeMailbox({ ownerUserId = "", ownerEmail = ""
 
     let processedCount = 0;
 
-    for await (const message of client.fetch({ seen: false }, { uid: true, envelope: true, source: true }, { uid: true })) {
+    // Treat the configured mailbox folder as the authoritative intake queue.
+    // Apple Mail and other IMAP clients often mark messages as seen during preview,
+    // so filtering only on unseen messages causes valid queued RFQs to be skipped.
+    for await (const message of client.fetch("1:*", { uid: true, envelope: true, source: true }, { uid: true })) {
       if (processedCount >= config.maxMessagesPerSync) {
         break;
       }
