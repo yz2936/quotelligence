@@ -1007,6 +1007,77 @@ function buildDashboardStats(cases, now = new Date()) {
   const outcomes30d = last30Days.filter(({ lifecycle }) => ["won", "lost"].includes(lifecycle.outcome));
   const won30d = outcomes30d.filter(({ lifecycle }) => lifecycle.outcome === "won");
   const approvedOrSent90d = lifecycleCases.filter(({ lifecycle }) => isWithinDays(lifecycle.approvedAt || lifecycle.sentAt, 90, now));
+  const pendingOutcomeQueue = buildPendingOutcomes(cases, now);
+  const blockedQuotes = lifecycleCases
+    .filter(({ caseRecord, lifecycle }) => caseRecord.quoteEstimate && ["draft", "approved"].includes(lifecycle.status))
+    .map(({ caseRecord, lifecycle }) => {
+      const flagCounts = countQuoteFlags(caseRecord.quoteEstimate);
+      const blockingIssues = getQuoteApprovalBlockingIssues(caseRecord.quoteEstimate);
+
+      return {
+        caseId: caseRecord.caseId,
+        customerName: caseRecord.customerName,
+        projectName: caseRecord.projectName,
+        stage: lifecycle.status,
+        totalValue: Number(caseRecord.quoteEstimate?.total || 0),
+        currency: caseRecord.quoteEstimate?.currency || lifecycle.currency || "USD",
+        redLines: flagCounts.red,
+        yellowLines: flagCounts.yellow,
+        blockingIssueCount: blockingIssues.length,
+        blockingIssues: blockingIssues.slice(0, 3),
+      };
+    })
+    .filter((entry) => entry.redLines > 0 || entry.blockingIssueCount > 0)
+    .sort((a, b) => {
+      if (b.redLines !== a.redLines) {
+        return b.redLines - a.redLines;
+      }
+
+      if (b.blockingIssueCount !== a.blockingIssueCount) {
+        return b.blockingIssueCount - a.blockingIssueCount;
+      }
+
+      return b.totalValue - a.totalValue;
+    })
+    .slice(0, 6);
+  const pipelineCounts = lifecycleCases.reduce(
+    (counts, { lifecycle }) => {
+      const key = String(lifecycle.status || "not_started").trim().toLowerCase();
+
+      if (key === "draft") {
+        counts.draft += 1;
+      } else if (key === "approved") {
+        counts.approved += 1;
+      } else if (key === "sent") {
+        counts.sent += 1;
+      } else if (key === "negotiating") {
+        counts.negotiating += 1;
+      } else if (key === "won") {
+        counts.won += 1;
+      } else if (key === "lost") {
+        counts.lost += 1;
+      } else if (key === "no_response") {
+        counts.noResponse += 1;
+      } else {
+        counts.notStarted += 1;
+      }
+
+      return counts;
+    },
+    { notStarted: 0, draft: 0, approved: 0, sent: 0, negotiating: 0, won: 0, lost: 0, noResponse: 0 }
+  );
+  const lostReasons30d = Object.values(
+    outcomes30d
+      .filter(({ lifecycle }) => lifecycle.outcome === "lost")
+      .reduce((acc, { lifecycle }) => {
+        const reason = String(lifecycle.lossReason || "Unspecified loss reason").trim() || "Unspecified loss reason";
+        acc[reason] = acc[reason] || { reason, count: 0 };
+        acc[reason].count += 1;
+        return acc;
+      }, {})
+  )
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
   const topCustomers = Object.values(
     lifecycleCases.reduce((acc, { caseRecord }) => {
       if (!caseRecord.quoteEstimate) {
@@ -1014,9 +1085,16 @@ function buildDashboardStats(cases, now = new Date()) {
       }
 
       const key = String(caseRecord.customerName || "Unknown Customer");
-      acc[key] = acc[key] || { customerName: key, quoteCount: 0, totalValue: 0 };
+      const lifecycle = ensureQuoteLifecycle(caseRecord);
+      acc[key] = acc[key] || { customerName: key, quoteCount: 0, totalValue: 0, wonCount: 0, sentCount: 0 };
       acc[key].quoteCount += 1;
       acc[key].totalValue += Number(caseRecord.quoteEstimate?.total || 0);
+      if (lifecycle.outcome === "won") {
+        acc[key].wonCount += 1;
+      }
+      if (lifecycle.sentAt) {
+        acc[key].sentCount += 1;
+      }
       return acc;
     }, {})
   )
@@ -1039,13 +1117,24 @@ function buildDashboardStats(cases, now = new Date()) {
       ? roundStat(won30d.reduce((sum, { caseRecord }) => sum + Number(caseRecord.quoteEstimate?.blendedMarginPct || 0), 0) / won30d.length)
       : 0,
     quotesSent30d: sent30d.length,
+    revenueInPlay: roundStat(
+      lifecycleCases
+        .filter(({ lifecycle }) => ["draft", "approved", "sent", "negotiating"].includes(lifecycle.status))
+        .reduce((sum, { lifecycle }) => sum + Number(lifecycle.totalValue || 0), 0)
+    ),
+    overdueFollowUpValue: roundStat(pendingOutcomeQueue.reduce((sum, item) => sum + Number(item.totalValue || 0), 0)),
+    blockedQuotesCount: blockedQuotes.length,
     avgTurnaroundHours: sent30d.length
       ? roundStat(
           sent30d.reduce((sum, { caseRecord, lifecycle }) => sum + hoursBetween(caseRecord.createdAt, lifecycle.sentAt), 0) / sent30d.length
         )
       : 0,
-    pendingFollowUps: buildPendingOutcomes(cases, now).length,
+    pendingFollowUps: pendingOutcomeQueue.length,
     flagDistribution90d,
+    pipelineCounts,
+    blockedQuotes,
+    pendingOutcomeQueue: pendingOutcomeQueue.slice(0, 6),
+    lostReasons30d,
     topCustomers,
     quoteVolumeByWeek: buildQuoteVolumeByWeek(cases, now),
   };

@@ -176,6 +176,9 @@ test("dashboard stats route returns JSON insight payload", async () => {
   const payload = JSON.parse(response.body);
   assert.equal(typeof payload.stats.pendingFollowUps, "number");
   assert.ok(Array.isArray(payload.stats.topCustomers));
+  assert.equal(typeof payload.stats.revenueInPlay, "number");
+  assert.ok(Array.isArray(payload.stats.blockedQuotes));
+  assert.ok(payload.stats.pipelineCounts);
 });
 
 test("quote approval route allows manually overridden red lines with final prices", async () => {

@@ -1413,6 +1413,63 @@ td.case-table__actions .button { display: inline-flex; }
   flex-shrink: 0;
 }
 
+.dashboard-pipeline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+}
+
+.dashboard-pipeline-metric {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--panel-secondary);
+}
+
+.dashboard-pipeline-metric__label {
+  display: block;
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.dashboard-pipeline-metric__value {
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.dashboard-list {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-list-item {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--panel-secondary);
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-list-item--compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.dashboard-list-item h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.dashboard-list-item__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 /* ── Workflow Cards ─────────────────────────────────────── */
 .workflow-card-list,
 .timeline-list {

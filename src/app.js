@@ -1733,17 +1733,119 @@ function renderDashboardPage(state) {
             : ""
         }
         <div class="content-grid">
+          ${renderMetricCard(t(language, "revenueInPlayCard"), formatMoneyValue("USD", stats.revenueInPlay || 0))}
+          ${renderMetricCard(t(language, "blockedQuotesCard"), String(stats.blockedQuotesCount || 0))}
+          ${renderMetricCard(t(language, "overdueFollowUpValueCard"), formatMoneyValue("USD", stats.overdueFollowUpValue || 0))}
           ${renderMetricCard(t(language, "winRateCard"), `${Number(stats.winRate30d || 0).toFixed(2)}%`)}
+        </div>
+        <div class="content-grid">
           ${renderMetricCard(t(language, "avgMarginCard"), `${Number(stats.avgMargin30d || 0).toFixed(2)}%`)}
           ${renderMetricCard(t(language, "quotesSentCard"), String(stats.quotesSent30d || 0))}
           ${renderMetricCard(t(language, "pendingFollowUpsCard"), String(stats.pendingFollowUps || 0))}
+          ${renderMetricCard(t(language, "avgTurnaroundCard"), `${Number(stats.avgTurnaroundHours || 0).toFixed(2)}h`)}
         </div>
+        <article class="summary-card">
+          <p class="eyebrow">${t(language, "pipelineHealthTitle")}</p>
+          <div class="dashboard-pipeline-grid">
+            ${renderPipelineMetric(t(language, "dashboardPipelineDraft"), stats.pipelineCounts?.draft || 0)}
+            ${renderPipelineMetric(t(language, "dashboardPipelineApproved"), stats.pipelineCounts?.approved || 0)}
+            ${renderPipelineMetric(t(language, "dashboardPipelineSent"), stats.pipelineCounts?.sent || 0)}
+            ${renderPipelineMetric(t(language, "dashboardPipelineNegotiating"), stats.pipelineCounts?.negotiating || 0)}
+            ${renderPipelineMetric(t(language, "dashboardPipelineWon"), stats.pipelineCounts?.won || 0)}
+            ${renderPipelineMetric(t(language, "dashboardPipelineLost"), stats.pipelineCounts?.lost || 0)}
+          </div>
+        </article>
         <div class="content-grid">
+          <article class="summary-card">
+            <p class="eyebrow">${t(language, "dashboardAttentionTitle")}</p>
+            ${
+              stats.blockedQuotes?.length
+                ? `
+                  <div class="dashboard-list">
+                    ${stats.blockedQuotes
+                      .map(
+                        (entry) => `
+                          <article class="dashboard-list-item">
+                            <div>
+                              <h4>${escapeHtml(entry.customerName || t(language, "customer"))}</h4>
+                              <p class="muted">${escapeHtml(entry.caseId)} · ${escapeHtml(entry.projectName || t(language, "noneLabel"))}</p>
+                            </div>
+                            <div class="dashboard-list-item__meta">
+                              <span class="tag tag--compact">${escapeHtml(formatQuoteStage({ status: entry.stage }, language))}</span>
+                              <strong>${formatMoneyValue(entry.currency || "USD", entry.totalValue || 0)}</strong>
+                            </div>
+                            <p>${renderInlineFlagMix({ green: 0, yellow: entry.yellowLines || 0, red: entry.redLines || 0 })}</p>
+                            <p class="muted">${escapeHtml((entry.blockingIssues || []).join(" "))}</p>
+                          </article>
+                        `
+                      )
+                      .join("")}
+                  </div>
+                `
+                : `<p class="muted">${t(language, "dashboardAttentionEmpty")}</p>`
+            }
+          </article>
           <article class="summary-card">
             <p class="eyebrow">${t(language, "flagDistributionTitle")}</p>
             <p>${renderInlineFlagMix(stats.flagDistribution90d || {})}</p>
-            <p class="muted">${t(language, "avgTurnaroundCard")}: ${Number(stats.avgTurnaroundHours || 0).toFixed(2)}h</p>
+            <p class="muted">${t(language, "dashboardFlagMixHint")}</p>
           </article>
+        </div>
+        <div class="content-grid">
+          <article class="summary-card">
+            <p class="eyebrow">${t(language, "dashboardFollowUpTitle")}</p>
+            ${
+              stats.pendingOutcomeQueue?.length
+                ? `
+                  <div class="dashboard-list">
+                    ${stats.pendingOutcomeQueue
+                      .map(
+                        (entry) => `
+                          <article class="dashboard-list-item">
+                            <div>
+                              <h4>${escapeHtml(entry.customerName || t(language, "customer"))}</h4>
+                              <p class="muted">${escapeHtml(entry.quoteNumber || entry.caseId)}</p>
+                            </div>
+                            <div class="dashboard-list-item__meta">
+                              <span class="tag tag--compact">${t(language, "daysOverdueLabel")}: ${escapeHtml(String(entry.daysOverdue || 0))}</span>
+                              <strong>${formatMoneyValue(entry.currency || "USD", entry.totalValue || 0)}</strong>
+                            </div>
+                          </article>
+                        `
+                      )
+                      .join("")}
+                  </div>
+                `
+                : `<p class="muted">${t(language, "dashboardFollowUpEmpty")}</p>`
+            }
+          </article>
+          <article class="summary-card">
+            <p class="eyebrow">${t(language, "dashboardLossReasonsTitle")}</p>
+            ${
+              stats.lostReasons30d?.length
+                ? `
+                  <div class="dashboard-list">
+                    ${stats.lostReasons30d
+                      .map(
+                        (entry) => `
+                          <article class="dashboard-list-item dashboard-list-item--compact">
+                            <div>
+                              <h4>${escapeHtml(entry.reason)}</h4>
+                            </div>
+                            <div class="dashboard-list-item__meta">
+                              <strong>${escapeHtml(String(entry.count || 0))}</strong>
+                            </div>
+                          </article>
+                        `
+                      )
+                      .join("")}
+                  </div>
+                `
+                : `<p class="muted">${t(language, "dashboardLossReasonsEmpty")}</p>`
+            }
+          </article>
+        </div>
+        <div class="content-grid">
           <article class="summary-card">
             <p class="eyebrow">${t(language, "weeklyVolumeTitle")}</p>
             <div class="table-shell">
@@ -1778,6 +1880,7 @@ function renderDashboardPage(state) {
                 <tr>
                   <th>${t(language, "customer")}</th>
                   <th>${t(language, "quotesSentCard")}</th>
+                  <th>${t(language, "dashboardWonCount")}</th>
                   <th>${t(language, "total")}</th>
                 </tr>
               </thead>
@@ -1787,7 +1890,8 @@ function renderDashboardPage(state) {
                     (entry) => `
                       <tr class="case-table__row">
                         <td>${escapeHtml(entry.customerName)}</td>
-                        <td>${escapeHtml(String(entry.quoteCount || 0))}</td>
+                        <td>${escapeHtml(String(entry.sentCount || entry.quoteCount || 0))}</td>
+                        <td>${escapeHtml(String(entry.wonCount || 0))}</td>
                         <td>${formatMoneyValue("USD", entry.totalValue || 0)}</td>
                       </tr>
                     `
@@ -1808,6 +1912,15 @@ function renderMetricCard(label, value) {
       <p class="eyebrow">${escapeHtml(label)}</p>
       <h3>${escapeHtml(value)}</h3>
     </article>
+  `;
+}
+
+function renderPipelineMetric(label, value) {
+  return `
+    <div class="dashboard-pipeline-metric">
+      <span class="dashboard-pipeline-metric__label">${escapeHtml(label)}</span>
+      <strong class="dashboard-pipeline-metric__value">${escapeHtml(String(value))}</strong>
+    </div>
   `;
 }
 
