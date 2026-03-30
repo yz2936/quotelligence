@@ -607,7 +607,7 @@ function renderAnalystMessageContent(text) {
         return "";
       }
 
-      const heading = isAnalystHeading(lines[0]) ? lines[0].replace(/:$/, "") : "";
+      const heading = isAnalystHeading(lines[0]) ? normalizeAnalystText(lines[0]).replace(/:$/, "") : "";
       const contentLines = heading ? lines.slice(1) : lines;
 
       if (contentLines.every(isBulletLine)) {
@@ -625,7 +625,7 @@ function renderAnalystMessageContent(text) {
         return `
           <section class="analyst-block">
             <h4 class="analyst-block__title">${escapeHtml(heading)}</h4>
-            <p>${escapeHtml(contentLines.join(" "))}</p>
+            <p>${escapeHtml(normalizeAnalystText(contentLines.join(" ")))}</p>
           </section>
         `;
       }
@@ -633,7 +633,7 @@ function renderAnalystMessageContent(text) {
       if (lines.length > 1 && contentLines.slice(1).every(isBulletLine)) {
         return `
           <section class="analyst-block">
-            <h4 class="analyst-block__title">${escapeHtml(contentLines[0].replace(/:$/, ""))}</h4>
+            <h4 class="analyst-block__title">${escapeHtml(normalizeAnalystText(contentLines[0]).replace(/:$/, ""))}</h4>
             <ul class="analyst-list">
               ${contentLines.slice(1).map((line) => `<li>${escapeHtml(cleanBulletLine(line))}</li>`).join("")}
             </ul>
@@ -644,7 +644,7 @@ function renderAnalystMessageContent(text) {
       return `
         <section class="analyst-block">
           ${heading ? `<h4 class="analyst-block__title">${escapeHtml(heading)}</h4>` : ""}
-          <p>${escapeHtml(contentLines.join(" "))}</p>
+          <p>${escapeHtml(normalizeAnalystText(contentLines.join(" ")))}</p>
         </section>
       `;
     })
@@ -656,14 +656,19 @@ function isBulletLine(line) {
 }
 
 function cleanBulletLine(line) {
-  return String(line || "").trim().replace(/^([-*•]|\d+\.)\s+/, "");
+  return normalizeAnalystText(String(line || "").trim().replace(/^([-*•]|\d+\.)\s+/, ""));
 }
 
 function isAnalystHeading(line) {
-  const value = String(line || "").trim();
+  const rawValue = String(line || "").trim();
+  const value = normalizeAnalystText(rawValue);
 
   if (!value) {
     return false;
+  }
+
+  if (/^(#{1,6}\s+)/.test(rawValue)) {
+    return true;
   }
 
   if (/:$/.test(value)) {
@@ -671,6 +676,16 @@ function isAnalystHeading(line) {
   }
 
   return value.length <= 48 && !/[.!?]$/.test(value) && !isBulletLine(value);
+}
+
+function normalizeAnalystText(value) {
+  return String(value || "")
+    .replace(/^#{1,6}\s*/g, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function renderKnowledgeComparison(state) {
