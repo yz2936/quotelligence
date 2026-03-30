@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildComplaintLibraryContext,
   buildKnowledgeLibraryContext,
   buildWorkspaceCaseContext,
   extractPdfTextWithOpenAI,
@@ -290,4 +291,44 @@ test("buildKnowledgeLibraryContext includes category and summary", () => {
   assert.match(context, /USD 1250/);
   assert.match(context, /Pricing/);
   assert.match(context, /Material Grade/);
+});
+
+test("buildComplaintLibraryContext includes complaint email and attachment context", () => {
+  const context = buildComplaintLibraryContext([
+    {
+      complaintId: "CMP-001",
+      complaintTitle: "Damaged shipment",
+      customerName: "HeatEx",
+      status: "Open",
+      createdAt: "2026-03-29",
+      updatedAt: "2026-03-29",
+      summary: "Customer reported bent tubes on arrival.",
+      emailText: "Please investigate the bent tube bundle from the March shipment.",
+      attachments: [
+        {
+          name: "complaint-log.xlsx",
+          type: "XLSX",
+          category: "Complaint Support",
+          summary: "Complaint tracker with issue categories and counts.",
+          extractedText: "Issue category: Dimensional Non-Conformance",
+          workbookPreview: {
+            sheets: [
+              {
+                sheetName: "Client Complaints",
+                rowCount: 10,
+                columns: ["Complaint Category", "Count"],
+                sampleRows: [{ "Complaint Category": "Dimensional", Count: "5" }],
+              },
+            ],
+          },
+        },
+      ],
+    },
+  ]);
+
+  assert.match(context, /CMP-001/);
+  assert.match(context, /Damaged shipment/);
+  assert.match(context, /bent tubes on arrival/);
+  assert.match(context, /complaint-log\.xlsx/);
+  assert.match(context, /Client Complaints/);
 });

@@ -578,6 +578,15 @@ function renderAnalystWindow(state) {
           : `<p class="muted">${t(language, "noAnalystQuestions")}</p>`}
       </div>
       <div class="analyst-composer">
+        <div class="analyst-source-filter">
+          <label class="form-label analyst-source-filter__label" for="analyst-source">${t(language, "analystSourceLabel")}</label>
+          <select id="analyst-source" class="select-input analyst-source-filter__select">
+            <option value="all" ${state.analyst.source === "all" ? "selected" : ""}>${t(language, "analystSourceAll")}</option>
+            <option value="cases" ${state.analyst.source === "cases" ? "selected" : ""}>${t(language, "analystSourceCases")}</option>
+            <option value="knowledge" ${state.analyst.source === "knowledge" ? "selected" : ""}>${t(language, "analystSourceKnowledge")}</option>
+            <option value="complaints" ${state.analyst.source === "complaints" ? "selected" : ""}>${t(language, "analystSourceComplaints")}</option>
+          </select>
+        </div>
         <textarea id="analyst-question" class="text-area text-area--compact analyst-composer__input" placeholder="${t(language, "analystPlaceholder")}">${escapeHtml(state.analyst.question)}</textarea>
         <div class="intake-actions analyst-actions">
           <button class="button ${state.analyst.loading ? "button--disabled" : ""}" data-action="submit-analyst-question" ${state.analyst.loading ? "disabled" : ""}>${state.analyst.loading ? t(language, "analyzing") : t(language, "askAnalyst")}</button>

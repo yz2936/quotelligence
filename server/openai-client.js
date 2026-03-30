@@ -197,7 +197,14 @@ export async function extractPdfTextWithOpenAI({ fileName, buffer, language = "e
   return outputText;
 }
 
-export async function answerWorkspaceQuestion({ question, cases, knowledgeFiles = [], language = "en" }) {
+export async function answerWorkspaceQuestion({
+  question,
+  cases,
+  knowledgeFiles = [],
+  complaints = [],
+  language = "en",
+  source = "all",
+}) {
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
@@ -215,9 +222,11 @@ export async function answerWorkspaceQuestion({ question, cases, knowledgeFiles 
       instructions:
         [
           "You are an enterprise workspace analyst.",
-          "Answer only from the supplied case data and uploaded knowledge files.",
+          `Answer only from the supplied ${describeWorkspaceSource(source)}.`,
+          "Do not use any data source that is not included in the supplied context.",
           "For Excel or workbook uploads, read the workbook tab names, columns, and sample rows before answering.",
           "If the question asks for tab-level insights, organize the answer by sheet.",
+          "For customer complaints, use the complaint email context, complaint summaries, and attachment summaries as the source of truth.",
           "Use short sections with clear headings and concise bullet points when possible.",
           "Avoid repetition, filler, and long dense paragraphs.",
           "If data is insufficient, say so clearly.",
@@ -239,6 +248,9 @@ export async function answerWorkspaceQuestion({ question, cases, knowledgeFiles 
                 "",
                 "KNOWLEDGE FILES:",
                 buildKnowledgeLibraryContext(knowledgeFiles),
+                "",
+                "CUSTOMER COMPLAINTS:",
+                buildComplaintLibraryContext(complaints),
               ].join("\n"),
             },
           ],
@@ -717,6 +729,56 @@ export function buildKnowledgeLibraryContext(knowledgeFiles, options = {}) {
       })
     )
     .join("\n");
+}
+
+export function buildComplaintLibraryContext(complaints) {
+  if (!complaints.length) {
+    return "No customer complaints are currently stored.";
+  }
+
+  return complaints
+    .map((complaint) =>
+      JSON.stringify({
+        complaint_id: complaint.complaintId,
+        complaint_title: complaint.complaintTitle,
+        customer_name: complaint.customerName,
+        status: complaint.status,
+        created_at: complaint.createdAt,
+        updated_at: complaint.updatedAt,
+        summary: complaint.summary,
+        email_text: complaint.emailText || "",
+        attachments: (complaint.attachments || []).map((attachment) => ({
+          name: attachment.name,
+          type: attachment.type,
+          category: attachment.category,
+          summary: attachment.summary,
+          extracted_text: String(attachment.extractedText || "").slice(0, 2500),
+          workbook_tabs: (attachment.workbookPreview?.sheets || []).map((sheet) => ({
+            sheet_name: sheet.sheetName,
+            row_count: sheet.rowCount,
+            columns: sheet.columns || [],
+            sample_rows: sheet.sampleRows || [],
+          })),
+        })),
+      })
+    )
+    .join("\n");
+}
+
+function describeWorkspaceSource(source) {
+  if (source === "cases") {
+    return "case data";
+  }
+
+  if (source === "knowledge") {
+    return "uploaded knowledge files";
+  }
+
+  if (source === "complaints") {
+    return "customer complaint records";
+  }
+
+  return "case data, uploaded knowledge files, and customer complaint records";
 }
 
 async function fetchWithOptionalTimeout(url, options) {

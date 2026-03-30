@@ -103,6 +103,7 @@ const state = {
   analyst: {
     open: true,
     question: "",
+    source: "all",
     loading: false,
     messages: [],
   },
@@ -746,6 +747,11 @@ root.addEventListener("input", (event) => {
 
   if (target.id === "analyst-question") {
     state.analyst.question = target.value;
+    return;
+  }
+
+  if (target.id === "analyst-source") {
+    state.analyst.source = target.value || "all";
     return;
   }
 
@@ -1510,17 +1516,33 @@ async function submitWorkspaceQuestion() {
   mount();
 
   try {
-    const response = await queryWorkspace(question, state.language);
+    const response = await queryWorkspace(question, state.language, state.analyst.source);
     state.analyst.messages.unshift({
       role: "assistant",
       text: response.answer.answer,
-      meta: `${confidenceLabel(state.language, response.answer.confidence)} • ${response.answer.basis}`,
+      meta: `${confidenceLabel(state.language, response.answer.confidence)} • ${response.answer.basis} • ${formatAnalystSourceLabel(state.analyst.source, state.language)}`,
     });
     state.analyst.question = "";
   } finally {
     state.analyst.loading = false;
     mount();
   }
+}
+
+function formatAnalystSourceLabel(source, language) {
+  if (source === "cases") {
+    return t(language, "analystSourceCases");
+  }
+
+  if (source === "knowledge") {
+    return t(language, "analystSourceKnowledge");
+  }
+
+  if (source === "complaints") {
+    return t(language, "analystSourceComplaints");
+  }
+
+  return t(language, "analystSourceAll");
 }
 
 function resetIdleIntakeMessage() {

@@ -303,19 +303,23 @@ export async function handleRequest(req, res) {
       const payload = await readJsonBody(req);
       const question = String(payload.question || "").trim();
       const language = String(payload.language || "en");
+      const source = normalizeWorkspaceSource(payload.source);
 
       if (!question) {
         return sendJson(res, 400, { error: "Question is required." });
       }
 
-      const cases = await listCases();
-      const knowledgeFiles = await listKnowledgeFiles();
+      const cases = source === "all" || source === "cases" ? await listCases() : [];
+      const knowledgeFiles = source === "all" || source === "knowledge" ? await listKnowledgeFiles() : [];
+      const complaints = source === "all" || source === "complaints" ? await listComplaints() : [];
 
       const answer = await answerWorkspaceQuestion({
         question,
         cases,
         knowledgeFiles,
+        complaints,
         language,
+        source,
       });
 
       return sendJson(res, 200, { answer });
@@ -831,6 +835,16 @@ function summarizeComplaint(complaint) {
     attachmentCount: Array.isArray(complaint.attachments) ? complaint.attachments.length : 0,
     summary: complaint.summary,
   };
+}
+
+function normalizeWorkspaceSource(value) {
+  const source = String(value || "all").trim().toLowerCase();
+
+  if (source === "cases" || source === "knowledge" || source === "complaints") {
+    return source;
+  }
+
+  return "all";
 }
 
 function detailKnowledgeFile(file) {

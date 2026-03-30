@@ -1393,6 +1393,19 @@ td.case-table__actions .button { display: inline-flex; }
   font-size: 13.5px;
 }
 
+.analyst-source-filter {
+  display: grid;
+  gap: 6px;
+}
+
+.analyst-source-filter__label {
+  margin: 0;
+}
+
+.analyst-source-filter__select {
+  background: var(--panel-secondary);
+}
+
 .analyst-actions {
   display: flex;
   justify-content: flex-start;
