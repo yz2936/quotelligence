@@ -395,13 +395,6 @@ root.addEventListener("click", async (event) => {
       return;
     }
 
-    if (action === "analyst-example") {
-      event.preventDefault();
-      state.analyst.question = target.dataset.prompt || "";
-      mount();
-      return;
-    }
-
     if (action === "run-knowledge-compare") {
       event.preventDefault();
       await runKnowledgeComparison();

@@ -572,11 +572,6 @@ function renderAnalystWindow(state) {
           : `<p class="muted">${t(language, "noAnalystQuestions")}</p>`}
       </div>
       <div class="analyst-composer">
-        <div class="analyst-examples">
-          <button class="tag tag--button" data-action="analyst-example" data-prompt="${escapeAttribute(language === "zh" ? "请统计近一个月请求的总数量，并说明依据。" : "How many items were requested in the past month?")}">${t(language, "analystExamplePastMonth")}</button>
-          <button class="tag tag--button" data-action="analyst-example" data-prompt="${escapeAttribute(language === "zh" ? "哪些客户的案例当前处于需要澄清状态？" : "Which customers have cases needing clarification?")}">${t(language, "analystExampleClarification")}</button>
-          <button class="tag tag--button" data-action="analyst-example" data-prompt="${escapeAttribute(language === "zh" ? "请总结当前案例中最常见的材质。" : "Summarize the most common requested materials in the stored cases.")}">${t(language, "analystExampleMaterials")}</button>
-        </div>
         <textarea id="analyst-question" class="text-area text-area--compact analyst-composer__input" placeholder="${t(language, "analystPlaceholder")}">${escapeHtml(state.analyst.question)}</textarea>
         <div class="intake-actions analyst-actions">
           <button class="button ${state.analyst.loading ? "button--disabled" : ""}" data-action="submit-analyst-question" ${state.analyst.loading ? "disabled" : ""}>${state.analyst.loading ? t(language, "analyzing") : t(language, "askAnalyst")}</button>

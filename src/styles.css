@@ -1295,22 +1295,6 @@ td.case-table__actions .button { display: inline-flex; }
   border-radius: var(--r-sm);
 }
 
-/* Analyst examples */
-.analyst-examples {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
-  flex-shrink: 0;
-}
-
-.analyst-examples .tag--button {
-  font-size: 11.5px;
-  padding: 6px 8px;
-  border-radius: var(--r-sm);
-  text-align: center;
-  line-height: 1.35;
-}
-
 /* Analyst thread */
 .analyst-thread {
   flex: 1 1 auto;
