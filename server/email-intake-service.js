@@ -57,6 +57,10 @@ export async function syncEmailIntakeMailbox({ ownerUserId = "", ownerEmail = ""
     host: config.host,
     port: config.port,
     secure: config.secure,
+    disableCompression: true,
+    disableAutoIdle: true,
+    disableAutoEnable: true,
+    servername: config.host,
     connectionTimeout: config.connectTimeoutMs,
     greetingTimeout: config.greetingTimeoutMs,
     socketTimeout: config.socketTimeoutMs,
@@ -140,7 +144,7 @@ export async function syncEmailIntakeMailbox({ ownerUserId = "", ownerEmail = ""
       }
     }
   } catch (error) {
-    throw new Error(buildMailboxSyncError(error));
+    throw new Error(buildMailboxSyncError(error, client, config));
   } finally {
     lock?.release();
     await client.logout().catch(() => {});
@@ -214,8 +218,11 @@ function formatEnvelopeAddresses(entries) {
     .join(", ");
 }
 
-function buildMailboxSyncError(error) {
+function buildMailboxSyncError(error, client, config) {
   const message = error instanceof Error ? error.message : String(error);
+  const byeReason = error && typeof error === "object" && "reason" in error ? String(error.reason || "") : "";
+  const serverReason = String(client?.byeReason || byeReason || "").trim();
+  const hostLabel = `${config?.host || "mail host"}:${config?.port || ""}`;
 
   if (/self-signed certificate|unable to verify the first certificate|certificate/i.test(message)) {
     return "Mailbox TLS certificate validation failed. Set IMAP_TLS_REJECT_UNAUTHORIZED=false only if you trust this mail server.";
@@ -227,6 +234,12 @@ function buildMailboxSyncError(error) {
 
   if (/timeout|timed out|greeting/i.test(message)) {
     return "Mailbox connection timed out. Verify the IMAP host, port, firewall access, and TLS settings.";
+  }
+
+  if (/Connection not available/i.test(message)) {
+    return serverReason
+      ? `Mailbox connection to ${hostLabel} was dropped by the server: ${serverReason}`
+      : `Mailbox connection to ${hostLabel} was closed before the IMAP session became usable. Verify firewall access, IMAP server compatibility, and whether the server blocks cloud-origin connections.`;
   }
 
   return `Mailbox sync failed: ${message}`;
