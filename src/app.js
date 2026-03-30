@@ -224,7 +224,7 @@ function renderIntakeScreen(state) {
             <p class="intake-simple__subtitle">${t(language, "intakeHeroSubtitle")}</p>
           </div>
           <div class="intake-simple__panel">
-            <input id="rfq-file-input" class="visually-hidden" type="file" multiple />
+            <input id="rfq-file-input" class="visually-hidden" type="file" multiple accept=".eml,message/rfc822,.pdf,.txt,.csv,.xlsx,.docx,.md" />
             <textarea
               id="email-intake-text"
               class="intake-simple__textarea"

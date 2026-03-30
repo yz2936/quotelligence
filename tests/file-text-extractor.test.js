@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
-import { extractTextFromBuffer, extractWorkbookSheetsFromBuffer } from "../server/file-text-extractor.js";
+import { extractEmailPackageFromBuffer, extractTextFromBuffer, extractWorkbookSheetsFromBuffer } from "../server/file-text-extractor.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -191,4 +191,42 @@ test("extractWorkbookSheetsFromBuffer skips leading description rows before the 
   assert.equal(workbook.sheets[0].rows[0].material_grade, "ASTM A312 TP316L");
 
   await fs.rm(tempDir, { recursive: true, force: true });
+});
+
+test("extractEmailPackageFromBuffer reads email body and attachments from eml", () => {
+  const eml = Buffer.from(
+    [
+      "From: buyer@example.com",
+      "To: rfq@example.com",
+      "Subject: RFQ HX-42",
+      "MIME-Version: 1.0",
+      'Content-Type: multipart/mixed; boundary="frontier"',
+      "",
+      "--frontier",
+      'Content-Type: text/plain; charset="utf-8"',
+      "",
+      "Please quote the attached ASTM A312 TP316L pipe package for Singapore.",
+      "",
+      "--frontier",
+      'Content-Type: text/plain; name="spec.txt"',
+      'Content-Disposition: attachment; filename="spec.txt"',
+      "Content-Transfer-Encoding: base64",
+      "",
+      Buffer.from("ASTM A312 TP316L\nQuantity: 1200 meters\nDestination: Singapore").toString("base64"),
+      "--frontier--",
+      "",
+    ].join("\r\n"),
+    "utf8"
+  );
+
+  const result = extractEmailPackageFromBuffer({
+    fileName: "rfq.eml",
+    buffer: eml,
+  });
+
+  assert.match(result.bodyText, /RFQ HX-42/);
+  assert.match(result.bodyText, /Please quote the attached/);
+  assert.equal(result.attachments.length, 1);
+  assert.equal(result.attachments[0].name, "spec.txt");
+  assert.match(result.attachments[0].buffer.toString("utf8"), /ASTM A312 TP316L/);
 });

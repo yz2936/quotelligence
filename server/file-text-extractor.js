@@ -4,8 +4,12 @@ import JSZip from "jszip";
 export async function extractTextFromBuffer({ fileName, type, buffer }) {
   const normalizedType = String(type || inferType(fileName)).toUpperCase();
 
-  if (["TXT", "EML", "CSV", "MD"].includes(normalizedType)) {
+  if (["TXT", "CSV", "MD"].includes(normalizedType)) {
     return buffer.toString("utf8");
+  }
+
+  if (normalizedType === "EML") {
+    return extractEmailPackageFromBuffer({ fileName, buffer }).bodyText;
   }
 
   if (normalizedType === "PDF") {
@@ -56,6 +60,45 @@ export async function extractWorkbookSheetsFromBuffer({ fileName, type, buffer }
   } catch {
     return null;
   }
+}
+
+export function extractEmailPackageFromBuffer({ fileName, buffer }) {
+  const rawMessage = Buffer.isBuffer(buffer) ? buffer.toString("latin1") : Buffer.from(buffer).toString("latin1");
+  const parsed = parseMimeEntity(rawMessage);
+  const context = {
+    bodyParts: [],
+    htmlParts: [],
+    attachments: [],
+  };
+
+  collectEmailContent(parsed, context);
+
+  const headerMap = parsed.headers || {};
+  const subject = decodeMimeHeaderValue(firstHeaderValue(headerMap, "subject"));
+  const from = decodeMimeHeaderValue(firstHeaderValue(headerMap, "from"));
+  const to = decodeMimeHeaderValue(firstHeaderValue(headerMap, "to"));
+  const cc = decodeMimeHeaderValue(firstHeaderValue(headerMap, "cc"));
+  const bodyText = sanitizePlainText(
+    [
+      subject ? `Subject: ${subject}` : "",
+      from ? `From: ${from}` : "",
+      to ? `To: ${to}` : "",
+      cc ? `Cc: ${cc}` : "",
+      context.bodyParts.join("\n\n") || htmlToText(context.htmlParts.join("\n\n")),
+    ]
+      .filter(Boolean)
+      .join("\n")
+  );
+
+  return {
+    fileName,
+    subject,
+    from,
+    to,
+    cc,
+    bodyText,
+    attachments: context.attachments,
+  };
 }
 
 async function extractPdfText(buffer) {
@@ -350,6 +393,226 @@ function sanitizePlainText(text) {
     .replace(/\n{3,}/g, "\n\n")
     .replace(/[^\S\n]+/g, " ")
     .trim();
+}
+
+function parseMimeEntity(rawEntity) {
+  const normalized = String(rawEntity || "").replace(/\r\n/g, "\n");
+  const separatorIndex = normalized.indexOf("\n\n");
+  const headerBlock = separatorIndex >= 0 ? normalized.slice(0, separatorIndex) : normalized;
+  const body = separatorIndex >= 0 ? normalized.slice(separatorIndex + 2) : "";
+  const headers = parseMimeHeaders(headerBlock);
+  const contentType = parseContentType(firstHeaderValue(headers, "content-type"));
+  const encoding = String(firstHeaderValue(headers, "content-transfer-encoding") || "").trim().toLowerCase();
+  const disposition = parseContentDisposition(firstHeaderValue(headers, "content-disposition"));
+
+  if (contentType.type.startsWith("multipart/") && contentType.params.boundary) {
+    return {
+      headers,
+      contentType,
+      disposition,
+      parts: splitMultipartBody(body, contentType.params.boundary).map(parseMimeEntity),
+    };
+  }
+
+  return {
+    headers,
+    contentType,
+    disposition,
+    body,
+    decodedBody: decodeMimeBody(body, encoding),
+  };
+}
+
+function collectEmailContent(entity, context) {
+  if (Array.isArray(entity.parts) && entity.parts.length) {
+    for (const part of entity.parts) {
+      collectEmailContent(part, context);
+    }
+    return;
+  }
+
+  const mimeType = String(entity.contentType?.type || "text/plain").toLowerCase();
+  const fileName = decodeMimeHeaderValue(entity.disposition?.params?.filename || entity.contentType?.params?.name || "");
+  const attachmentLike = Boolean(fileName) || /^attachment$/i.test(entity.disposition?.type || "");
+
+  if (attachmentLike && fileName) {
+    context.attachments.push({
+      name: fileName,
+      contentType: mimeType,
+      buffer: entity.decodedBody,
+    });
+    return;
+  }
+
+  if (mimeType === "text/plain") {
+    const decoded = sanitizePlainText(entity.decodedBody.toString("utf8"));
+    if (decoded) {
+      context.bodyParts.push(decoded);
+    }
+    return;
+  }
+
+  if (mimeType === "text/html") {
+    const html = entity.decodedBody.toString("utf8");
+    if (html.trim()) {
+      context.htmlParts.push(html);
+    }
+  }
+}
+
+function parseMimeHeaders(headerBlock) {
+  const lines = String(headerBlock || "").split("\n");
+  const unfolded = [];
+
+  for (const line of lines) {
+    if (/^[ \t]/.test(line) && unfolded.length) {
+      unfolded[unfolded.length - 1] += ` ${line.trim()}`;
+    } else if (line.trim()) {
+      unfolded.push(line.trim());
+    }
+  }
+
+  const headers = {};
+
+  for (const line of unfolded) {
+    const separatorIndex = line.indexOf(":");
+
+    if (separatorIndex < 0) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim().toLowerCase();
+    const value = line.slice(separatorIndex + 1).trim();
+
+    headers[key] = headers[key] || [];
+    headers[key].push(value);
+  }
+
+  return headers;
+}
+
+function firstHeaderValue(headers, key) {
+  const values = headers?.[String(key || "").toLowerCase()];
+  return Array.isArray(values) ? values[0] || "" : "";
+}
+
+function parseContentType(rawValue) {
+  const [typePart, ...paramParts] = String(rawValue || "text/plain").split(";");
+  return {
+    type: String(typePart || "text/plain").trim().toLowerCase(),
+    params: parseHeaderParams(paramParts),
+  };
+}
+
+function parseContentDisposition(rawValue) {
+  const [typePart, ...paramParts] = String(rawValue || "").split(";");
+  return {
+    type: String(typePart || "").trim().toLowerCase(),
+    params: parseHeaderParams(paramParts),
+  };
+}
+
+function parseHeaderParams(parts) {
+  const params = {};
+
+  for (const part of parts || []) {
+    const separatorIndex = part.indexOf("=");
+
+    if (separatorIndex < 0) {
+      continue;
+    }
+
+    const key = part.slice(0, separatorIndex).trim().toLowerCase();
+    let value = part.slice(separatorIndex + 1).trim();
+
+    value = value.replace(/^"(.*)"$/s, "$1");
+    params[key] = value;
+  }
+
+  return params;
+}
+
+function splitMultipartBody(body, boundary) {
+  const normalized = String(body || "").replace(/\r\n/g, "\n");
+  const marker = `--${boundary}`;
+  const closingMarker = `--${boundary}--`;
+  const segments = normalized.split(marker).slice(1);
+
+  return segments
+    .map((segment) => segment.replace(/^\n/, ""))
+    .filter((segment) => segment && !segment.startsWith("--"))
+    .map((segment) => {
+      const endIndex = segment.indexOf(closingMarker);
+      return (endIndex >= 0 ? segment.slice(0, endIndex) : segment).replace(/\n$/, "");
+    })
+    .filter(Boolean);
+}
+
+function decodeMimeBody(body, encoding) {
+  const normalizedEncoding = String(encoding || "").trim().toLowerCase();
+
+  if (normalizedEncoding === "base64") {
+    return Buffer.from(String(body || "").replace(/\s+/g, ""), "base64");
+  }
+
+  if (normalizedEncoding === "quoted-printable") {
+    return decodeQuotedPrintableToBuffer(body);
+  }
+
+  return Buffer.from(String(body || ""), "latin1");
+}
+
+function decodeQuotedPrintableToBuffer(input) {
+  const normalized = String(input || "").replace(/=\n/g, "");
+  const bytes = [];
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const character = normalized[index];
+
+    if (character === "=" && /^[0-9A-Fa-f]{2}$/.test(normalized.slice(index + 1, index + 3))) {
+      bytes.push(Number.parseInt(normalized.slice(index + 1, index + 3), 16));
+      index += 2;
+    } else {
+      bytes.push(character.charCodeAt(0));
+    }
+  }
+
+  return Buffer.from(bytes);
+}
+
+function decodeMimeHeaderValue(value) {
+  return sanitizePlainText(
+    String(value || "").replace(/=\?([^?]+)\?([BQbq])\?([^?]*)\?=/g, (_match, charset, encoding, text) => {
+      const normalizedEncoding = String(encoding || "").toUpperCase();
+
+      if (normalizedEncoding === "B") {
+        return Buffer.from(text, "base64").toString(normalizeMimeCharset(charset));
+      }
+
+      const quotedPrintable = text.replace(/_/g, " ");
+      return decodeQuotedPrintableToBuffer(quotedPrintable).toString(normalizeMimeCharset(charset));
+    })
+  );
+}
+
+function normalizeMimeCharset(charset) {
+  const normalized = String(charset || "utf-8").trim().toLowerCase();
+  return normalized === "utf8" ? "utf8" : normalized;
+}
+
+function htmlToText(html) {
+  return sanitizePlainText(
+    String(html || "")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+  );
 }
 
 function inferType(fileName) {

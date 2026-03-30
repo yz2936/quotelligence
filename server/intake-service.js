@@ -1,5 +1,5 @@
 import path from "node:path";
-import { extractTextFromBuffer } from "./file-text-extractor.js";
+import { extractEmailPackageFromBuffer, extractTextFromBuffer } from "./file-text-extractor.js";
 import { extractPdfTextWithOpenAI, generateCaseAnalysis } from "./openai-client.js";
 import { initializeCaseWorkflow } from "./workflow-engine.js";
 import { runAgent1, runAgent2, mapPipelineToCaseFields } from "./agent-pipeline.js";
@@ -20,10 +20,15 @@ export function getAllowedCaseStatuses() {
 }
 
 export async function buildCaseFromSubmission({ files, emailText, language = "en", now = new Date() }) {
-  const parsedFiles = await Promise.all(files.map(normalizeUploadedFile));
-  const sourceContext = buildSourceContext({ emailText, parsedFiles });
+  const { intakeEmailText, extractedEmailFiles, remainingFiles } = await expandEmailIntakeFiles({
+    files,
+    emailText,
+  });
+  const parsedFiles = await Promise.all([...remainingFiles, ...extractedEmailFiles].map(normalizeUploadedFile));
+  const combinedEmailText = [intakeEmailText, emailText].filter(Boolean).join("\n\n").trim();
+  const sourceContext = buildSourceContext({ emailText: combinedEmailText, parsedFiles });
   const llmResult = normalizeAnalysisResult(
-    await createAnalysisWithFallback({ emailText, parsedFiles, language })
+    await createAnalysisWithFallback({ emailText: combinedEmailText, parsedFiles, language })
   );
   const extractedFields = [
     createField("Product Type", llmResult.product_type, inferConfidence(llmResult.product_type), sourceReferenceForField(parsedFiles, "Product Type")),
@@ -499,6 +504,52 @@ async function normalizeUploadedFile(file) {
     type,
     extractedText,
     sourceReference: extractedText ? `${name} extracted text` : `${name} metadata only`,
+  };
+}
+
+async function expandEmailIntakeFiles({ files, emailText }) {
+  const remainingFiles = [];
+  const extractedEmailFiles = [];
+  const emailBodies = [String(emailText || "").trim()].filter(Boolean);
+
+  for (const file of files || []) {
+    const name = file.name || "uploaded-file";
+    const type = inferType(name);
+
+    if (type !== "EML") {
+      remainingFiles.push(file);
+      continue;
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const emailPackage = extractEmailPackageFromBuffer({ fileName: name, buffer });
+
+    if (emailPackage.bodyText) {
+      emailBodies.unshift(emailPackage.bodyText);
+    }
+
+    for (const attachment of emailPackage.attachments || []) {
+      extractedEmailFiles.push(createBufferBackedFile(attachment));
+    }
+  }
+
+  return {
+    intakeEmailText: emailBodies.join("\n\n").trim(),
+    extractedEmailFiles,
+    remainingFiles,
+  };
+}
+
+function createBufferBackedFile(attachment) {
+  return {
+    name: attachment.name || "email-attachment",
+    type: attachment.contentType || "",
+    async arrayBuffer() {
+      return attachment.buffer.buffer.slice(
+        attachment.buffer.byteOffset,
+        attachment.buffer.byteOffset + attachment.buffer.byteLength
+      );
+    },
   };
 }
 

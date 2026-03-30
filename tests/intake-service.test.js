@@ -188,6 +188,49 @@ test("buildCaseFromSubmission fails loudly when a PDF cannot be parsed", async (
   );
 });
 
+test("buildCaseFromSubmission expands .eml uploads into email context and attached RFQ files", async () => {
+  const eml = new File(
+    [
+      [
+        "From: buyer@example.com",
+        "To: rfq@example.com",
+        "Subject: RFQ HX-42",
+        "MIME-Version: 1.0",
+        'Content-Type: multipart/mixed; boundary="frontier"',
+        "",
+        "--frontier",
+        'Content-Type: text/plain; charset="utf-8"',
+        "",
+        "Customer: HeatEx Procurement Team",
+        "Please quote the attached stainless seamless pipe RFQ for Singapore with EN 10204 3.1 documentation.",
+        "",
+        "--frontier",
+        'Content-Type: text/plain; name="rfq.txt"',
+        'Content-Disposition: attachment; filename="rfq.txt"',
+        "Content-Transfer-Encoding: base64",
+        "",
+        Buffer.from(
+          "ASTM A312 TP316L seamless pipe 2 in SCH40, 6m, quantity 1200 meters, delivery 6 weeks to Singapore."
+        ).toString("base64"),
+        "--frontier--",
+        "",
+      ].join("\r\n"),
+    ],
+    "forwarded-rfq.eml",
+    { type: "message/rfc822" }
+  );
+
+  const result = await buildCaseFromSubmission({
+    files: [eml],
+    emailText: "",
+    now: new Date("2026-03-24T12:34:56Z"),
+  });
+
+  assert.equal(result.customerName, "HeatEx Procurement Team");
+  assert.ok(result.sourceFiles.some((file) => file.name === "rfq.txt"));
+  assert.ok(result.aiSummary.whatCustomerNeeds.includes("Singapore"));
+});
+
 test("allowed statuses match the PRD workflow", () => {
   assert.deepEqual(getAllowedCaseStatuses(), [
     "New",
