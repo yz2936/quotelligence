@@ -1347,6 +1347,103 @@ td.case-table__actions .button { display: inline-flex; }
 .analyst-message p { margin: 0; }
 .analyst-message__meta { margin-top: 8px !important; font-size: 11.5px; }
 
+.analyst-trace {
+  margin-top: 10px;
+  padding: 10px 11px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: var(--r-sm);
+  background: rgba(241, 245, 249, 0.86);
+  display: grid;
+  gap: 10px;
+}
+
+.analyst-trace--live {
+  border-color: rgba(37, 99, 235, 0.18);
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.96), rgba(248, 250, 252, 0.98));
+}
+
+.analyst-trace__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.analyst-trace__title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.analyst-trace__status {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.analyst-trace__steps {
+  display: grid;
+  gap: 8px;
+}
+
+.analyst-trace__step {
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.analyst-trace__step-marker {
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.85);
+}
+
+.analyst-trace__step--running .analyst-trace__step-marker {
+  background: #2563EB;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.14);
+}
+
+.analyst-trace__step--done .analyst-trace__step-marker {
+  background: #16A34A;
+}
+
+.analyst-trace__step-label,
+.analyst-trace__step-detail,
+.analyst-trace__dataset-label,
+.analyst-trace__dataset-items {
+  margin: 0;
+}
+
+.analyst-trace__step-label,
+.analyst-trace__dataset-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.analyst-trace__step-detail,
+.analyst-trace__dataset-items {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.analyst-trace__datasets {
+  display: grid;
+  gap: 8px;
+}
+
+.analyst-trace__dataset {
+  padding-top: 8px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.3);
+}
+
 .analyst-block + .analyst-block {
   margin-top: 10px;
 }

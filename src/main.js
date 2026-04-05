@@ -124,6 +124,7 @@ const state = {
     source: "all",
     loading: false,
     messages: [],
+    activeTrace: null,
   },
   knowledge: {
     files: [],
@@ -1703,6 +1704,7 @@ async function submitWorkspaceQuestion() {
   }
 
   state.analyst.loading = true;
+  state.analyst.activeTrace = createPendingAnalystTrace(state.analyst.source, state.language);
   state.error = "";
   state.analyst.messages.unshift({
     role: "user",
@@ -1710,18 +1712,143 @@ async function submitWorkspaceQuestion() {
   });
   mount();
 
+  const progressPromise = runAnalystProgressSequence();
+
   try {
     const response = await queryWorkspace(question, state.language, state.analyst.source);
     state.analyst.messages.unshift({
       role: "assistant",
       text: response.answer.answer,
       meta: `${confidenceLabel(state.language, response.answer.confidence)} • ${response.answer.basis} • ${formatAnalystSourceLabel(state.analyst.source, state.language)}`,
+      trace: finalizeAnalystTrace(response.answer.trace, state.language),
     });
     state.analyst.question = "";
   } finally {
+    await progressPromise.catch(() => {});
     state.analyst.loading = false;
+    state.analyst.activeTrace = null;
     mount();
   }
+}
+
+async function runAnalystProgressSequence() {
+  const steps = [
+    {
+      id: "scope",
+      delay: 140,
+      detail:
+        state.language === "zh"
+          ? `当前问题已限定为${formatAnalystSourceLabel(state.analyst.source, state.language)}。`
+          : `Question scoped to ${formatAnalystSourceLabel(state.analyst.source, state.language)}.`,
+    },
+    {
+      id: "load",
+      delay: 220,
+      detail:
+        state.language === "zh"
+          ? "正在读取匹配的数据记录与文件。"
+          : "Loading matching records and files.",
+    },
+    {
+      id: "parse",
+      delay: 260,
+      detail:
+        state.language === "zh"
+          ? "正在解析工作表页签、文本预览与附件结构。"
+          : "Parsing workbook tabs, text previews, and attachment structure.",
+    },
+    {
+      id: "answer",
+      delay: 320,
+      detail:
+        state.language === "zh"
+          ? "正在生成基于证据的回答。"
+          : "Composing a grounded answer.",
+    },
+  ];
+
+  for (const step of steps) {
+    if (!state.analyst.loading || !state.analyst.activeTrace) {
+      return;
+    }
+
+    markAnalystTraceStep(step.id, "running", step.detail);
+    await new Promise((resolve) => window.setTimeout(resolve, step.delay));
+
+    if (!state.analyst.loading || !state.analyst.activeTrace) {
+      return;
+    }
+
+    markAnalystTraceStep(step.id, "done", step.detail);
+  }
+}
+
+function createPendingAnalystTrace(source, language) {
+  return {
+    source,
+    datasets: [],
+    steps: [
+      {
+        id: "scope",
+        label: language === "zh" ? "确定分析范围" : "Selected analysis scope",
+        detail: "",
+        status: "pending",
+      },
+      {
+        id: "load",
+        label: language === "zh" ? "加载相关记录" : "Loaded matching records",
+        detail: "",
+        status: "pending",
+      },
+      {
+        id: "parse",
+        label: language === "zh" ? "解析文件与结构化内容" : "Parsed files and structured content",
+        detail: "",
+        status: "pending",
+      },
+      {
+        id: "answer",
+        label: language === "zh" ? "生成结论" : "Composed grounded answer",
+        detail: "",
+        status: "pending",
+      },
+    ],
+  };
+}
+
+function markAnalystTraceStep(stepId, status, detail = "") {
+  if (!state.analyst.activeTrace) {
+    return;
+  }
+
+  state.analyst.activeTrace = {
+    ...state.analyst.activeTrace,
+    steps: state.analyst.activeTrace.steps.map((step) =>
+      step.id === stepId
+        ? {
+            ...step,
+            status,
+            detail: detail || step.detail,
+          }
+        : step
+    ),
+  };
+  mount();
+}
+
+function finalizeAnalystTrace(trace, language) {
+  if (!trace) {
+    return null;
+  }
+
+  return {
+    ...trace,
+    steps: (trace.steps || []).map((step) => ({
+      ...step,
+      status: "done",
+      detail: step.detail || (language === "zh" ? "已完成。" : "Completed."),
+    })),
+  };
 }
 
 function formatAnalystSourceLabel(source, language) {

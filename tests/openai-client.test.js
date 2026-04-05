@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildComplaintLibraryContext,
   buildKnowledgeLibraryContext,
+  buildWorkspaceQueryTrace,
   buildWorkspaceCaseContext,
   extractPdfTextWithOpenAI,
   normalizeCaseAnalysis,
@@ -35,6 +36,42 @@ test("buildWorkspaceCaseContext includes case metadata and extracted fields", ()
   assert.match(context, /HeatEx/);
   assert.match(context, /1,200 meters/);
   assert.match(context, /ASTM A312 TP316L/);
+});
+
+test("buildWorkspaceQueryTrace summarizes the reviewed datasets and steps", () => {
+  const trace = buildWorkspaceQueryTrace({
+    source: "all",
+    language: "en",
+    cases: [
+      {
+        caseId: "QC-001",
+        customerName: "HeatEx",
+      },
+    ],
+    knowledgeFiles: [
+      {
+        knowledgeFileId: "KF-001",
+        name: "pricing-matrix.xlsx",
+        extractedText: "Row 1",
+        workbookPreview: {
+          sheets: [{ sheetName: "Pricing", rowCount: 5 }],
+        },
+      },
+    ],
+    complaints: [
+      {
+        complaintId: "CMP-001",
+        complaintTitle: "Surface issue",
+        attachments: [{ name: "photos.pdf" }],
+      },
+    ],
+  });
+
+  assert.equal(trace.datasets.length, 3);
+  assert.equal(trace.steps.length, 4);
+  assert.match(trace.datasets[0].items[0], /QC-001/);
+  assert.match(trace.datasets[1].items[0], /pricing-matrix\.xlsx/);
+  assert.match(trace.steps[2].detail, /workbook tabs/i);
 });
 
 test("normalizeCaseAnalysis keeps product fields clean and trimmed", () => {

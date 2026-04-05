@@ -680,6 +680,7 @@ function renderAnalystWindow(state) {
         <button class="button button--secondary analyst-window__toggle" data-action="toggle-analyst">${t(language, "collapseAnalyst")}</button>
       </div>
       <div class="analyst-thread">
+        ${state.analyst.loading && state.analyst.activeTrace ? renderAnalystTrace(state.analyst.activeTrace, language, true) : ""}
         ${state.analyst.messages.length
           ? state.analyst.messages
               .slice()
@@ -688,6 +689,7 @@ function renderAnalystWindow(state) {
                 (message) => `
                   <article class="analyst-message analyst-message--${message.role}">
                     ${renderAnalystMessageContent(message.text)}
+                    ${message.trace ? renderAnalystTrace(message.trace, language, false) : ""}
                     ${message.meta ? `<p class="muted analyst-message__meta">${message.meta}</p>` : ""}
                   </article>
                 `
@@ -777,6 +779,57 @@ function renderAnalystMessageContent(text) {
       `;
     })
     .join("");
+}
+
+function renderAnalystTrace(trace, language, loading) {
+  const steps = Array.isArray(trace.steps) ? trace.steps : [];
+  const datasets = Array.isArray(trace.datasets) ? trace.datasets : [];
+
+  return `
+    <section class="analyst-trace ${loading ? "analyst-trace--live" : ""}">
+      <div class="analyst-trace__header">
+        <h4 class="analyst-trace__title">${t(language, loading ? "analystProgressTitle" : "analystEvidenceTitle")}</h4>
+        <span class="analyst-trace__status">${t(language, loading ? "analystLiveStatus" : "analystCompleteStatus")}</span>
+      </div>
+      <div class="analyst-trace__steps">
+        ${steps
+          .map(
+            (step) => `
+              <div class="analyst-trace__step analyst-trace__step--${escapeHtml(step.status || "pending")}">
+                <div class="analyst-trace__step-marker"></div>
+                <div class="analyst-trace__step-body">
+                  <p class="analyst-trace__step-label">${escapeHtml(step.label || "")}</p>
+                  ${step.detail ? `<p class="analyst-trace__step-detail">${escapeHtml(step.detail)}</p>` : ""}
+                </div>
+              </div>
+            `
+          )
+          .join("")}
+      </div>
+      ${
+        datasets.length
+          ? `
+            <div class="analyst-trace__datasets">
+              ${datasets
+                .map(
+                  (dataset) => `
+                    <div class="analyst-trace__dataset">
+                      <p class="analyst-trace__dataset-label">${escapeHtml(dataset.label || "")} · ${escapeHtml(String(dataset.count ?? 0))}</p>
+                      ${
+                        dataset.items?.length
+                          ? `<p class="analyst-trace__dataset-items">${escapeHtml(dataset.items.join(", "))}</p>`
+                          : `<p class="analyst-trace__dataset-items muted">${t(language, "analystNoItemsLoaded")}</p>`
+                      }
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>
+          `
+          : ""
+      }
+    </section>
+  `;
 }
 
 function isBulletLine(line) {

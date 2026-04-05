@@ -206,6 +206,7 @@ export async function answerWorkspaceQuestion({
   source = "all",
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
+  const trace = buildWorkspaceQueryTrace({ cases, knowledgeFiles, complaints, source, language });
 
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is missing from the environment.");
@@ -279,7 +280,10 @@ export async function answerWorkspaceQuestion({
     throw new Error("OpenAI response did not include workspace answer text.");
   }
 
-  return JSON.parse(outputText);
+  return {
+    ...JSON.parse(outputText),
+    trace,
+  };
 }
 
 export async function generateKnowledgeFileMetadata({ fileName, fileType, extractedText, language = "en" }) {
@@ -779,6 +783,109 @@ function describeWorkspaceSource(source) {
   }
 
   return "case data, uploaded knowledge files, and customer complaint records";
+}
+
+function describeWorkspaceSourceLabel(source, language) {
+  if (source === "cases") {
+    return language === "zh" ? "案例数据" : "case data";
+  }
+
+  if (source === "knowledge") {
+    return language === "zh" ? "知识文件" : "knowledge files";
+  }
+
+  if (source === "complaints") {
+    return language === "zh" ? "客户投诉" : "customer complaints";
+  }
+
+  return language === "zh" ? "全部工作区数据" : "all workspace data";
+}
+
+export function buildWorkspaceQueryTrace({ cases = [], knowledgeFiles = [], complaints = [], source = "all", language = "en" }) {
+  const datasets = [];
+
+  if (source === "all" || source === "cases") {
+    datasets.push({
+      type: "cases",
+      label: language === "zh" ? "案例记录" : "Case records",
+      count: cases.length,
+      items: cases.slice(0, 5).map((caseRecord) => `${caseRecord.caseId} · ${caseRecord.customerName || caseRecord.projectName || "Unnamed"}`),
+    });
+  }
+
+  if (source === "all" || source === "knowledge") {
+    datasets.push({
+      type: "knowledge",
+      label: language === "zh" ? "知识文件" : "Knowledge files",
+      count: knowledgeFiles.length,
+      items: knowledgeFiles.slice(0, 5).map((file) => file.name || file.knowledgeFileId || "Untitled file"),
+    });
+  }
+
+  if (source === "all" || source === "complaints") {
+    datasets.push({
+      type: "complaints",
+      label: language === "zh" ? "客户投诉" : "Customer complaints",
+      count: complaints.length,
+      items: complaints
+        .slice(0, 5)
+        .map((complaint) => complaint.complaintTitle || complaint.customerName || complaint.complaintId || "Untitled complaint"),
+    });
+  }
+
+  const workbookTabCount = knowledgeFiles.reduce(
+    (sum, file) => sum + Number(file.workbookPreview?.sheets?.length || 0),
+    0
+  );
+  const readablePreviewCount = knowledgeFiles.filter((file) => String(file.extractedText || "").trim()).length;
+  const complaintAttachmentCount = complaints.reduce(
+    (sum, complaint) => sum + Number(complaint.attachments?.length || 0),
+    0
+  );
+  const totalLoadedRecords = datasets.reduce((sum, dataset) => sum + dataset.count, 0);
+
+  return {
+    source,
+    datasets,
+    steps: [
+      {
+        id: "scope",
+        label: language === "zh" ? "确定分析范围" : "Selected analysis scope",
+        detail:
+          source === "all"
+            ? language === "zh"
+              ? "已覆盖案例、知识库与投诉数据。"
+              : "Covered cases, knowledge files, and complaint records."
+            : language === "zh"
+              ? `已限定为${describeWorkspaceSourceLabel(source, language)}。`
+              : `Scoped to ${describeWorkspaceSourceLabel(source, language)}.`,
+      },
+      {
+        id: "load",
+        label: language === "zh" ? "加载相关记录" : "Loaded matching records",
+        detail:
+          language === "zh"
+            ? `共载入 ${totalLoadedRecords} 条相关记录。`
+            : `Loaded ${totalLoadedRecords} relevant records.`,
+      },
+      {
+        id: "parse",
+        label: language === "zh" ? "解析文件与结构化内容" : "Parsed files and structured content",
+        detail:
+          language === "zh"
+            ? `识别 ${workbookTabCount} 个工作表页签、${readablePreviewCount} 个可读文件预览，以及 ${complaintAttachmentCount} 个投诉附件。`
+            : `Detected ${workbookTabCount} workbook tabs, ${readablePreviewCount} readable file previews, and ${complaintAttachmentCount} complaint attachments.`,
+      },
+      {
+        id: "answer",
+        label: language === "zh" ? "生成结论" : "Composed grounded answer",
+        detail:
+          language === "zh"
+            ? "仅基于已选数据源输出结论。"
+            : "Answer grounded only in the selected data source.",
+      },
+    ],
+  };
 }
 
 async function fetchWithOptionalTimeout(url, options) {
