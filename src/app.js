@@ -2068,6 +2068,17 @@ function renderDashboardPage(state) {
             ? `<div class="summary-card"><p><strong>${t(language, "pendingFollowUpsBanner")} ${escapeHtml(String(stats.pendingFollowUps))}</strong></p><p class="muted"><a href="#/outcomes">${t(language, "goToOutcomes")}</a></p></div>`
             : ""
         }
+        <article class="summary-card dashboard-brief">
+          <div>
+            <p class="eyebrow">${t(language, "dashboardBriefTitle")}</p>
+            <h3>${t(language, "dashboardBriefHeading")}</h3>
+          </div>
+          <div class="dashboard-brief__list">
+            ${(stats.narrative || [])
+              .map((line) => `<p>${escapeHtml(line)}</p>`)
+              .join("")}
+          </div>
+        </article>
         <div class="content-grid">
           ${renderMetricCard(t(language, "revenueInPlayCard"), formatMoneyValue("USD", stats.revenueInPlay || 0))}
           ${renderMetricCard(t(language, "blockedQuotesCard"), String(stats.blockedQuotesCount || 0))}
@@ -2077,8 +2088,14 @@ function renderDashboardPage(state) {
         <div class="content-grid">
           ${renderMetricCard(t(language, "avgMarginCard"), `${Number(stats.avgMargin30d || 0).toFixed(2)}%`)}
           ${renderMetricCard(t(language, "quotesSentCard"), String(stats.quotesSent30d || 0))}
-          ${renderMetricCard(t(language, "pendingFollowUpsCard"), String(stats.pendingFollowUps || 0))}
+          ${renderMetricCard(t(language, "openComplaintsCard"), String(stats.openComplaintsCount || 0))}
           ${renderMetricCard(t(language, "avgTurnaroundCard"), `${Number(stats.avgTurnaroundHours || 0).toFixed(2)}h`)}
+        </div>
+        <div class="content-grid">
+          ${renderMetricCard(t(language, "pendingFollowUpsCard"), String(stats.pendingFollowUps || 0))}
+          ${renderMetricCard(t(language, "staleCasesCard"), String((stats.staleCases || []).length))}
+          ${renderMetricCard(t(language, "knowledgeFilesCard"), String(stats.portfolioHealth?.knowledgeFiles || 0))}
+          ${renderMetricCard(t(language, "quoteReadyCasesCard"), String(stats.portfolioHealth?.quoteReadyCases || 0))}
         </div>
         <article class="summary-card">
           <p class="eyebrow">${t(language, "pipelineHealthTitle")}</p>
@@ -2092,6 +2109,16 @@ function renderDashboardPage(state) {
           </div>
         </article>
         <div class="content-grid">
+          <article class="summary-card">
+            <p class="eyebrow">${t(language, "dashboardKnowledgeCoverageTitle")}</p>
+            <div class="dashboard-pipeline-grid">
+              ${renderPipelineMetric(t(language, "dashboardKnowledgeReady"), stats.casesByKnowledgeStatus?.ready || 0)}
+              ${renderPipelineMetric(t(language, "dashboardKnowledgePartial"), stats.casesByKnowledgeStatus?.partial || 0)}
+              ${renderPipelineMetric(t(language, "dashboardKnowledgeBlocked"), stats.casesByKnowledgeStatus?.blocked || 0)}
+              ${renderPipelineMetric(t(language, "dashboardKnowledgeNotRun"), stats.casesByKnowledgeStatus?.notRun || 0)}
+            </div>
+            <p class="muted">${t(language, "dashboardKnowledgeCoverageHint")}</p>
+          </article>
           <article class="summary-card">
             <p class="eyebrow">${t(language, "dashboardAttentionTitle")}</p>
             ${
@@ -2156,6 +2183,61 @@ function renderDashboardPage(state) {
             }
           </article>
           <article class="summary-card">
+            <p class="eyebrow">${t(language, "dashboardCustomerPressureTitle")}</p>
+            ${
+              stats.customerPressure?.length
+                ? `
+                  <div class="dashboard-list">
+                    ${stats.customerPressure
+                      .map(
+                        (entry) => `
+                          <article class="dashboard-list-item">
+                            <div>
+                              <h4>${escapeHtml(entry.customerName)}</h4>
+                              <p class="muted">${t(language, "blockedQuotesCard")}: ${escapeHtml(String(entry.blockedDrafts || 0))} · ${t(language, "openComplaintsCard")}: ${escapeHtml(String(entry.openComplaintCount || 0))}</p>
+                            </div>
+                            <div class="dashboard-list-item__meta">
+                              <span class="tag tag--compact">${t(language, "quotesSentCard")}: ${escapeHtml(String(entry.quoteCount || 0))}</span>
+                              <strong>${formatMoneyValue("USD", entry.pipelineValue || 0)}</strong>
+                            </div>
+                          </article>
+                        `
+                      )
+                      .join("")}
+                  </div>
+                `
+                : `<p class="muted">${t(language, "dashboardCustomerPressureEmpty")}</p>`
+            }
+          </article>
+        </div>
+        <div class="content-grid">
+          <article class="summary-card">
+            <p class="eyebrow">${t(language, "dashboardComplaintWatchTitle")}</p>
+            ${
+              stats.complaintsByCustomer?.length
+                ? `
+                  <div class="dashboard-list">
+                    ${stats.complaintsByCustomer
+                      .map(
+                        (entry) => `
+                          <article class="dashboard-list-item dashboard-list-item--compact">
+                            <div>
+                              <h4>${escapeHtml(entry.customerName)}</h4>
+                              <p class="muted">${t(language, "openComplaintsCard")}: ${escapeHtml(String(entry.openComplaintCount || 0))}</p>
+                            </div>
+                            <div class="dashboard-list-item__meta">
+                              <span class="tag tag--compact">${t(language, "complaintsLast30dCard")}: ${escapeHtml(String(entry.complaintCount || 0))}</span>
+                            </div>
+                          </article>
+                        `
+                      )
+                      .join("")}
+                  </div>
+                `
+                : `<p class="muted">${t(language, "dashboardComplaintWatchEmpty")}</p>`
+            }
+          </article>
+          <article class="summary-card">
             <p class="eyebrow">${t(language, "dashboardLossReasonsTitle")}</p>
             ${
               stats.lostReasons30d?.length
@@ -2182,6 +2264,86 @@ function renderDashboardPage(state) {
           </article>
         </div>
         <div class="content-grid">
+          <article class="summary-card">
+            <p class="eyebrow">${t(language, "dashboardStaleWorkTitle")}</p>
+            ${
+              stats.staleCases?.length
+                ? `
+                  <div class="dashboard-list">
+                    ${stats.staleCases
+                      .map(
+                        (entry) => `
+                          <article class="dashboard-list-item">
+                            <div>
+                              <h4>${escapeHtml(entry.customerName || t(language, "customer"))}</h4>
+                              <p class="muted">${escapeHtml(entry.caseId)} · ${escapeHtml(entry.projectName || t(language, "noneLabel"))}</p>
+                            </div>
+                            <div class="dashboard-list-item__meta">
+                              <span class="tag tag--compact">${t(language, "dashboardDaysStale")}: ${escapeHtml(String(entry.daysStale || 0))}</span>
+                              <strong>${formatMoneyValue(entry.currency || "USD", entry.totalValue || 0)}</strong>
+                            </div>
+                          </article>
+                        `
+                      )
+                      .join("")}
+                  </div>
+                `
+                : `<p class="muted">${t(language, "dashboardStaleWorkEmpty")}</p>`
+            }
+          </article>
+          <article class="summary-card">
+            <p class="eyebrow">${t(language, "dashboardKnowledgeLibraryTitle")}</p>
+            ${
+              stats.knowledgeCategoryMix?.length
+                ? `
+                  <div class="dashboard-list">
+                    ${stats.knowledgeCategoryMix
+                      .map(
+                        (entry) => `
+                          <article class="dashboard-list-item dashboard-list-item--compact">
+                            <div>
+                              <h4>${escapeHtml(entry.category)}</h4>
+                            </div>
+                            <div class="dashboard-list-item__meta">
+                              <strong>${escapeHtml(String(entry.count || 0))}</strong>
+                            </div>
+                          </article>
+                        `
+                      )
+                      .join("")}
+                  </div>
+                `
+                : `<p class="muted">${t(language, "dashboardKnowledgeLibraryEmpty")}</p>`
+            }
+          </article>
+        </div>
+        <div class="content-grid">
+          <article class="summary-card">
+            <p class="eyebrow">${t(language, "dashboardRecentKnowledgeTitle")}</p>
+            ${
+              stats.recentKnowledgeFiles?.length
+                ? `
+                  <div class="dashboard-list">
+                    ${stats.recentKnowledgeFiles
+                      .map(
+                        (entry) => `
+                          <article class="dashboard-list-item">
+                            <div>
+                              <h4>${escapeHtml(entry.name)}</h4>
+                              <p class="muted">${escapeHtml(entry.category)} · ${escapeHtml(entry.type || t(language, "noneLabel"))}</p>
+                            </div>
+                            <div class="dashboard-list-item__meta">
+                              <strong>${escapeHtml(String(entry.uploadedAt || "").slice(0, 10))}</strong>
+                            </div>
+                          </article>
+                        `
+                      )
+                      .join("")}
+                  </div>
+                `
+                : `<p class="muted">${t(language, "dashboardRecentKnowledgeEmpty")}</p>`
+            }
+          </article>
           <article class="summary-card">
             <p class="eyebrow">${t(language, "weeklyVolumeTitle")}</p>
             <div class="table-shell">

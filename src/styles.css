@@ -1627,6 +1627,40 @@ td.case-table__actions .button { display: inline-flex; }
   flex-wrap: wrap;
 }
 
+.dashboard-brief {
+  display: grid;
+  gap: 16px;
+  background:
+    linear-gradient(135deg, rgba(214, 236, 255, 0.9), rgba(255, 255, 255, 0.96)),
+    var(--panel);
+}
+
+.dashboard-brief h3 {
+  margin: 0;
+}
+
+.dashboard-brief__list {
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-brief__list p {
+  margin: 0;
+  padding-left: 14px;
+  position: relative;
+}
+
+.dashboard-brief__list p::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
 /* ── Workflow Cards ─────────────────────────────────────── */
 .workflow-card-list,
 .timeline-list {

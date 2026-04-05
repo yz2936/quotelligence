@@ -332,6 +332,14 @@ test("dashboard stats route returns JSON insight payload", async () => {
       followUpDue: "2026-03-29T10:00:00.000Z",
     },
   });
+  await saveKnowledgeFile({
+    knowledgeFileId: "KF-DASH",
+    uploadedAt: "2026-03-29T12:00:00.000Z",
+    name: "pricing-reference.xlsx",
+    type: "Spreadsheet",
+    category: "Pricing",
+    summary: "Recent price list.",
+  });
 
   const response = await invokeRoute({
     method: "GET",
@@ -346,6 +354,9 @@ test("dashboard stats route returns JSON insight payload", async () => {
   assert.equal(typeof payload.stats.revenueInPlay, "number");
   assert.ok(Array.isArray(payload.stats.blockedQuotes));
   assert.ok(payload.stats.pipelineCounts);
+  assert.ok(Array.isArray(payload.stats.narrative));
+  assert.ok(payload.stats.casesByKnowledgeStatus);
+  assert.ok(Array.isArray(payload.stats.knowledgeCategoryMix));
 });
 
 test("quote approval route allows manually overridden red lines with final prices", async () => {

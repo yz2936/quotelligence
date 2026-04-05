@@ -867,8 +867,10 @@ export async function handleRequest(req, res) {
 
     if (url.pathname === "/api/dashboard/stats" && req.method === "GET") {
       const cases = await listCases(requestOwnerId);
+      const knowledgeFiles = await listKnowledgeFiles(requestOwnerId);
+      const complaints = await listComplaints(requestOwnerId);
       return sendJson(res, 200, {
-        stats: buildDashboardStats(cases),
+        stats: buildDashboardStats({ cases, knowledgeFiles, complaints }),
       });
     }
 
@@ -1181,7 +1183,7 @@ function buildPendingOutcomes(cases, now = new Date()) {
     .sort((a, b) => String(a.followUpDue || "").localeCompare(String(b.followUpDue || "")));
 }
 
-function buildDashboardStats(cases, now = new Date()) {
+function buildDashboardStats({ cases, knowledgeFiles = [], complaints = [] }, now = new Date()) {
   const lifecycleCases = cases.map((caseRecord) => ({ caseRecord, lifecycle: ensureQuoteLifecycle(caseRecord) }));
   const last30Days = lifecycleCases.filter(({ lifecycle }) => isWithinDays(lifecycle.recordedAt || lifecycle.sentAt, 30, now));
   const sent30d = lifecycleCases.filter(({ lifecycle }) => isWithinDays(lifecycle.sentAt, 30, now));
@@ -1291,6 +1293,130 @@ function buildDashboardStats(cases, now = new Date()) {
     },
     { green: 0, yellow: 0, red: 0 }
   );
+  const openComplaints = complaints.filter((complaint) => !["closed", "resolved"].includes(String(complaint.status || "").trim().toLowerCase()));
+  const complaints30d = complaints.filter((complaint) => isWithinDays(complaint.updatedAt || complaint.createdAt, 30, now));
+  const complaintsByCustomer = Object.values(
+    complaints.reduce((acc, complaint) => {
+      const key = String(complaint.customerName || "Unknown Customer");
+      acc[key] = acc[key] || { customerName: key, complaintCount: 0, openComplaintCount: 0, lastComplaintAt: "", attachmentCount: 0 };
+      acc[key].complaintCount += 1;
+      if (!["closed", "resolved"].includes(String(complaint.status || "").trim().toLowerCase())) {
+        acc[key].openComplaintCount += 1;
+      }
+      acc[key].attachmentCount += Array.isArray(complaint.attachments) ? complaint.attachments.length : Number(complaint.attachmentCount || 0);
+      const nextUpdatedAt = String(complaint.updatedAt || complaint.createdAt || "");
+      if (nextUpdatedAt > acc[key].lastComplaintAt) {
+        acc[key].lastComplaintAt = nextUpdatedAt;
+      }
+      return acc;
+    }, {})
+  )
+    .sort((a, b) => {
+      if (b.openComplaintCount !== a.openComplaintCount) {
+        return b.openComplaintCount - a.openComplaintCount;
+      }
+      return b.complaintCount - a.complaintCount;
+    })
+    .slice(0, 6);
+  const casesByKnowledgeStatus = lifecycleCases.reduce(
+    (acc, { caseRecord }) => {
+      const key = String(caseRecord.knowledgeComparison?.recommendedStatus || "not_run").trim().toLowerCase();
+      if (key === "ready to quote" || key === "fully supported") {
+        acc.ready += 1;
+      } else if (key === "partially supported") {
+        acc.partial += 1;
+      } else if (key === "escalate internally" || key === "needs clarification" || key === "unsupported") {
+        acc.blocked += 1;
+      } else {
+        acc.notRun += 1;
+      }
+      return acc;
+    },
+    { ready: 0, partial: 0, blocked: 0, notRun: 0 }
+  );
+  const staleCases = lifecycleCases
+    .map(({ caseRecord, lifecycle }) => ({
+      caseId: caseRecord.caseId,
+      customerName: caseRecord.customerName,
+      projectName: caseRecord.projectName,
+      status: caseRecord.status,
+      quoteStage: lifecycle.status,
+      updatedAt: caseRecord.updatedAt || caseRecord.createdAt || "",
+      daysStale: differenceInDays(now, caseRecord.updatedAt || caseRecord.createdAt || now.toISOString()),
+      totalValue: Number(caseRecord.quoteEstimate?.total || lifecycle.totalValue || 0),
+      currency: caseRecord.quoteEstimate?.currency || lifecycle.currency || "USD",
+    }))
+    .filter((entry) => entry.daysStale >= 7 && !["won", "lost", "no_response"].includes(String(entry.quoteStage || "").trim().toLowerCase()))
+    .sort((a, b) => b.daysStale - a.daysStale)
+    .slice(0, 6);
+  const knowledgeCategoryMix = Object.values(
+    knowledgeFiles.reduce((acc, file) => {
+      const key = String(file.category || "Uncategorized");
+      acc[key] = acc[key] || { category: key, count: 0 };
+      acc[key].count += 1;
+      return acc;
+    }, {})
+  )
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+  const recentKnowledgeFiles = knowledgeFiles
+    .filter((file) => isWithinDays(file.uploadedAt, 30, now))
+    .sort((a, b) => String(b.uploadedAt || "").localeCompare(String(a.uploadedAt || "")))
+    .slice(0, 6)
+    .map((file) => ({
+      knowledgeFileId: file.knowledgeFileId,
+      name: file.name,
+      category: file.category || "Uncategorized",
+      uploadedAt: file.uploadedAt,
+      type: file.type || "",
+    }));
+  const complaintsByCustomerMap = new Map(complaintsByCustomer.map((entry) => [entry.customerName, entry]));
+  const customerPressure = Object.values(
+    lifecycleCases.reduce((acc, { caseRecord, lifecycle }) => {
+      const key = String(caseRecord.customerName || "Unknown Customer");
+      const complaintMatch = complaintsByCustomerMap.get(key);
+      acc[key] = acc[key] || {
+        customerName: key,
+        pipelineValue: 0,
+        quoteCount: 0,
+        openComplaintCount: complaintMatch?.openComplaintCount || 0,
+        complaintCount: complaintMatch?.complaintCount || 0,
+        blockedDrafts: 0,
+      };
+      if (["draft", "approved", "sent", "negotiating"].includes(lifecycle.status)) {
+        acc[key].pipelineValue += Number(lifecycle.totalValue || caseRecord.quoteEstimate?.total || 0);
+      }
+      if (caseRecord.quoteEstimate) {
+        acc[key].quoteCount += 1;
+        const flags = countQuoteFlags(caseRecord.quoteEstimate);
+        if (flags.red > 0 || getQuoteApprovalBlockingIssues(caseRecord.quoteEstimate).length > 0) {
+          acc[key].blockedDrafts += 1;
+        }
+      }
+      return acc;
+    }, {})
+  )
+    .map((entry) => ({
+      ...entry,
+      pressureScore: entry.pipelineValue * 0.0001 + entry.openComplaintCount * 8 + entry.blockedDrafts * 5,
+    }))
+    .sort((a, b) => b.pressureScore - a.pressureScore)
+    .slice(0, 6);
+  const portfolioHealth = {
+    totalCases: cases.length,
+    quoteReadyCases: lifecycleCases.filter(({ caseRecord }) => String(caseRecord.status || "").toLowerCase() === "ready to quote").length,
+    openComplaints: openComplaints.length,
+    knowledgeFiles: knowledgeFiles.length,
+  };
+  const narrative = buildDashboardNarrative({
+    blockedQuotes,
+    pendingOutcomeQueue,
+    openComplaints,
+    staleCases,
+    customerPressure,
+    casesByKnowledgeStatus,
+    knowledgeFiles,
+  });
 
   return {
     winRate30d: outcomes30d.length ? roundStat((won30d.length / outcomes30d.length) * 100) : 0,
@@ -1318,7 +1444,59 @@ function buildDashboardStats(cases, now = new Date()) {
     lostReasons30d,
     topCustomers,
     quoteVolumeByWeek: buildQuoteVolumeByWeek(cases, now),
+    portfolioHealth,
+    openComplaintsCount: openComplaints.length,
+    complaintsLast30d: complaints30d.length,
+    complaintsByCustomer,
+    staleCases,
+    customerPressure,
+    knowledgeCategoryMix,
+    recentKnowledgeFiles,
+    casesByKnowledgeStatus,
+    narrative,
   };
+}
+
+function buildDashboardNarrative({
+  blockedQuotes,
+  pendingOutcomeQueue,
+  openComplaints,
+  staleCases,
+  customerPressure,
+  casesByKnowledgeStatus,
+  knowledgeFiles,
+}) {
+  const lines = [];
+
+  if (blockedQuotes.length) {
+    lines.push(`${blockedQuotes.length} quote drafts are blocked by red lines or missing prices.`);
+  } else {
+    lines.push("No draft quotes are currently blocked.");
+  }
+
+  if (pendingOutcomeQueue.length) {
+    lines.push(`${pendingOutcomeQueue.length} sent quotes are overdue for follow-up.`);
+  }
+
+  if (openComplaints.length) {
+    lines.push(`${openComplaints.length} customer complaints remain open across the workspace.`);
+  }
+
+  if (staleCases.length) {
+    lines.push(`${staleCases.length} active cases have gone stale for at least 7 days.`);
+  }
+
+  if (customerPressure[0]) {
+    lines.push(`${customerPressure[0].customerName} is carrying the highest combined commercial pressure right now.`);
+  }
+
+  if (knowledgeFiles.length === 0) {
+    lines.push("The knowledge library is empty, so pricing and support checks are likely weaker than they should be.");
+  } else if (casesByKnowledgeStatus.notRun > 0) {
+    lines.push(`${casesByKnowledgeStatus.notRun} cases still have no knowledge review outcome.`);
+  }
+
+  return lines;
 }
 
 function buildQuoteVolumeByWeek(cases, now = new Date()) {
