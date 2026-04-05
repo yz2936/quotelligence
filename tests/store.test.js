@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   __resetStoreForTests,
   deleteCase,
+  deleteKnowledgeFile,
   getCase,
   getComplaint,
   getKnowledgeFile,
@@ -82,6 +83,22 @@ test("store deletes cases and reports healthy file storage", async () => {
   const health = await getStoreHealth();
   assert.equal(health.mode, "file");
   assert.equal(health.healthy, true);
+});
+
+test("store deletes knowledge files from file-backed storage", async () => {
+  const storePath = path.join(os.tmpdir(), `quotelligence-store-test-${Date.now()}-delete-knowledge.json`);
+  __resetStoreForTests(storePath);
+
+  await saveKnowledgeFile({
+    knowledgeFileId: "KF-DELETE",
+    uploadedAt: "2026-04-04T12:00:00.000Z",
+    name: "obsolete-reference.pdf",
+  });
+
+  assert.equal(await deleteKnowledgeFile("KF-DELETE"), true);
+  assert.equal(await deleteKnowledgeFile("KF-404"), false);
+  assert.equal(await getKnowledgeFile("KF-DELETE"), null);
+  assert.equal((await listKnowledgeFiles()).length, 0);
 });
 
 test("store scopes cases by owner user id when provided", async () => {

@@ -132,6 +132,14 @@ export async function fetchKnowledgeFile(knowledgeFileId) {
   return handleJson(response);
 }
 
+export async function deleteKnowledgeFile(knowledgeFileId) {
+  const response = await apiFetch(`/api/knowledge/${encodeURIComponent(knowledgeFileId)}`, {
+    method: "DELETE",
+  });
+
+  return handleJson(response);
+}
+
 export async function uploadKnowledgeFiles({ files, language }) {
   const formData = new FormData();
 

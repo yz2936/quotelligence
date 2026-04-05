@@ -9,7 +9,7 @@ import { buildCaseFromSubmission, deriveCaseStatus, deriveMissingInfo, getAllowe
 import { answerWorkspaceQuestion } from "./server/openai-client.js";
 import { buildComplianceTraceability, buildKnowledgeComparison, buildKnowledgeFilesFromUpload, deriveKnowledgeStatus, getKnowledgeCategories, normalizeStoredQuoteEstimate, summarizeKnowledgeFile } from "./server/knowledge-service.js";
 import { buildQuoteDraft, buildQuoteEmail, buildQuoteDocument } from "./server/quote-service.js";
-import { deleteCase, getCase, getComplaint, getKnowledgeFile, getStoreHealth, getStoreMode, listCases, listComplaints, listKnowledgeFiles, saveCase, saveComplaint, saveKnowledgeFile } from "./server/store.js";
+import { deleteCase, deleteKnowledgeFile, getCase, getComplaint, getKnowledgeFile, getStoreHealth, getStoreMode, listCases, listComplaints, listKnowledgeFiles, saveCase, saveComplaint, saveKnowledgeFile } from "./server/store.js";
 import { authenticateRequest, getPublicSupabaseConfig } from "./server/supabase-auth.js";
 import { applyCheckpointDecision, syncCaseWorkflow } from "./server/workflow-engine.js";
 
@@ -182,6 +182,20 @@ export async function handleRequest(req, res) {
         return sendJson(res, 200, {
           knowledgeFile: detailKnowledgeFile(knowledgeFile),
         });
+      }
+    }
+
+    if (req.method === "DELETE") {
+      const knowledgeFileId = matchKnowledgeFileDetailPath(url.pathname);
+
+      if (knowledgeFileId) {
+        const deleted = await deleteKnowledgeFile(knowledgeFileId, requestOwnerId);
+
+        if (!deleted) {
+          return sendJson(res, 404, { error: "Knowledge file not found" });
+        }
+
+        return sendJson(res, 200, { deletedKnowledgeFileId: knowledgeFileId });
       }
     }
 

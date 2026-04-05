@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import test from "node:test";
 
 import { handleRequest } from "../server.js";
-import { __resetStoreForTests, saveCase } from "../server/store.js";
+import { __resetStoreForTests, saveCase, saveKnowledgeFile } from "../server/store.js";
 
 test("system status route returns JSON", async () => {
   const response = await invokeRoute({
@@ -89,6 +89,26 @@ test("delete case route removes a stored case", async () => {
 
   assert.equal(response.statusCode, 200);
   assert.equal(JSON.parse(response.body).deletedCaseId, "QC-DELETE");
+});
+
+test("delete knowledge route removes a stored knowledge file", async () => {
+  __resetStoreForTests();
+  await saveKnowledgeFile({
+    knowledgeFileId: "KF-DELETE",
+    uploadedAt: "2026-04-04T12:00:00.000Z",
+    name: "obsolete-reference.pdf",
+    type: "PDF",
+    category: "Certificates",
+    summary: "Old reference file.",
+  });
+
+  const response = await invokeRoute({
+    method: "DELETE",
+    url: "/api/knowledge/KF-DELETE",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(JSON.parse(response.body).deletedKnowledgeFileId, "KF-DELETE");
 });
 
 test("complaints routes store and return complaint records", async () => {

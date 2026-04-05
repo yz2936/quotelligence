@@ -372,6 +372,45 @@ export async function saveKnowledgeFile(knowledgeFile, ownerUserId = "") {
   return recordToSave;
 }
 
+export async function deleteKnowledgeFile(knowledgeFileId, ownerUserId = "") {
+  if (shouldUseDatabase()) {
+    await ensureDatabaseSchema();
+    const scope = normalizeOwnerScope(ownerUserId);
+    const result = scope
+      ? await getPool().query(
+          `
+            DELETE FROM knowledge_files
+            WHERE knowledge_file_id = $1 AND owner_user_id = $2
+          `,
+          [knowledgeFileId, scope]
+        )
+      : await getPool().query(
+          `
+            DELETE FROM knowledge_files
+            WHERE knowledge_file_id = $1
+          `,
+          [knowledgeFileId]
+        );
+
+    return result.rowCount > 0;
+  }
+
+  const store = loadFileStore();
+  const nextKnowledgeFiles = store.knowledgeFiles.filter(
+    (entry) => !(entry.knowledgeFileId === knowledgeFileId && matchesOwnerScope(entry, ownerUserId))
+  );
+
+  if (nextKnowledgeFiles.length === store.knowledgeFiles.length) {
+    return false;
+  }
+
+  writeFileStore({
+    ...store,
+    knowledgeFiles: nextKnowledgeFiles,
+  });
+  return true;
+}
+
 export function getStoreMode() {
   return shouldUseDatabase() ? "database" : "file";
 }

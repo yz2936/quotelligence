@@ -34,6 +34,7 @@ export function renderApp(root, state, currentHash) {
   stateForRender = {
     selectedProductIndex: state.selectedProductIndex || 0,
     summaryLoadingId: state.knowledge.summaryLoadingId || "",
+    deletingFileId: state.knowledge.deletingFileId || "",
   };
   root.innerHTML = `
     <div class="app-shell ${state.sidebarCollapsed ? "app-shell--collapsed" : ""}">
@@ -1106,6 +1107,9 @@ function renderKnowledgeFileTable(files, language) {
                       </button>
                       <button class="button button--small button--secondary" data-action="summarize-knowledge-file" data-knowledge-file-id="${file.knowledgeFileId}">
                         ${file.knowledgeFileId === stateForRender.summaryLoadingId ? t(language, "summarizing") : t(language, "summarize")}
+                      </button>
+                      <button class="button button--small button--secondary" data-action="delete-knowledge-file" data-knowledge-file-id="${file.knowledgeFileId}">
+                        ${file.knowledgeFileId === stateForRender.deletingFileId ? t(language, "deletingKnowledgeFile") : t(language, "deleteKnowledgeFile")}
                       </button>
                     </div>
                   </td>

@@ -5,6 +5,7 @@ import {
   createComplaintRecord,
   createCaseFromIntake,
   deleteCase as deleteCaseRequest,
+  deleteKnowledgeFile as deleteKnowledgeFileRequest,
   fetchComplaint,
   fetchComplaints,
   fetchDashboardStats,
@@ -132,6 +133,7 @@ const state = {
     previewOpen: false,
     selectedFile: null,
     summaryLoadingId: "",
+    deletingFileId: "",
   },
   complaints: {
     items: [],
@@ -401,6 +403,12 @@ root.addEventListener("click", async (event) => {
     if (action === "summarize-knowledge-file") {
       event.preventDefault();
       await runKnowledgeSummary(target.dataset.knowledgeFileId);
+      return;
+    }
+
+    if (action === "delete-knowledge-file") {
+      event.preventDefault();
+      await deleteKnowledgeFile(target.dataset.knowledgeFileId);
       return;
     }
 
@@ -1251,6 +1259,30 @@ async function submitKnowledgeUpload(files) {
         : `${response.knowledgeFiles.length} knowledge files uploaded.`;
   } finally {
     state.knowledge.uploading = false;
+    mount();
+  }
+}
+
+async function deleteKnowledgeFile(knowledgeFileId) {
+  if (!knowledgeFileId) {
+    return;
+  }
+
+  const confirmed = globalThis.confirm?.(t(state.language, "deleteKnowledgeFileConfirm"));
+
+  if (confirmed === false) {
+    return;
+  }
+
+  state.error = "";
+  state.knowledge.deletingFileId = knowledgeFileId;
+  mount();
+
+  try {
+    await deleteKnowledgeFileRequest(knowledgeFileId);
+    removeKnowledgeFileFromState(knowledgeFileId);
+  } finally {
+    state.knowledge.deletingFileId = "";
     mount();
   }
 }
@@ -2189,6 +2221,15 @@ function removeCaseFromState(caseId) {
     const cache = readCachedCaseMap();
     delete cache[caseId];
     writeCachedCaseMap(cache);
+  }
+}
+
+function removeKnowledgeFileFromState(knowledgeFileId) {
+  state.knowledge.files = state.knowledge.files.filter((file) => file.knowledgeFileId !== knowledgeFileId);
+
+  if (state.knowledge.selectedFile?.knowledgeFileId === knowledgeFileId) {
+    state.knowledge.selectedFile = null;
+    state.knowledge.previewOpen = false;
   }
 }
 
