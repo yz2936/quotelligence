@@ -1551,6 +1551,24 @@ td.case-table__actions .button { display: inline-flex; }
   letter-spacing: -0.03em;
 }
 
+.page-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.page-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quote-draft-switcher {
+  margin-top: 8px;
+}
+
 .dashboard-list {
   display: grid;
   gap: 10px;

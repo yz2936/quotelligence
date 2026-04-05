@@ -912,23 +912,46 @@ function renderComplaintsPage(state) {
           description: t(language, "complaintsDescription"),
           language,
           body: `
-            <label class="form-label" for="complaint-title">${t(language, "complaintTitleLabel")}</label>
-            <input id="complaint-title" class="text-input" type="text" value="${escapeAttribute(state.complaints.draft.title || "")}" />
-            <label class="form-label" for="complaint-customer">${t(language, "complaintCustomerLabel")}</label>
-            <input id="complaint-customer" class="text-input" type="text" value="${escapeAttribute(state.complaints.draft.customerName || "")}" />
-            <label class="form-label" for="complaint-email-context">${t(language, "complaintEmailContextLabel")}</label>
-            <textarea id="complaint-email-context" class="text-area text-area--compact" placeholder="${t(language, "complaintEmailPlaceholder")}">${escapeHtml(state.complaints.draft.emailText || "")}</textarea>
-            <div class="intake-actions">
-              <button class="button button--secondary" data-action="open-complaint-file-picker">${t(language, "uploadComplaintFiles")}</button>
-              <input id="complaint-file-input" class="visually-hidden" type="file" multiple />
-              <button class="button ${state.complaints.creating ? "button--disabled" : ""}" data-action="create-complaint" ${state.complaints.creating ? "disabled" : ""}>${t(language, "createComplaint")}</button>
+            <div class="page-toolbar">
+              <div>
+                <p class="eyebrow">${t(language, "complaintsRegistryTitle")}</p>
+                <p class="muted">${t(language, "complaintsRegistryDescription")}</p>
+              </div>
+              <div class="page-toolbar__actions">
+                <button class="button" data-action="toggle-complaint-composer">${state.complaints.composerOpen ? t(language, "closeNewComplaint") : t(language, "newComplaint")}</button>
+              </div>
             </div>
+            ${renderComplaintTable(state.complaints.items, language)}
             ${
-              state.complaints.draft.files.length
-                ? `<p class="muted">${escapeHtml(state.complaints.draft.files.map((file) => file.name).join(", "))}</p>`
+              state.complaints.composerOpen
+                ? `
+                  <div class="summary-card">
+                    <div class="result-card__header">
+                      <div>
+                        <p class="eyebrow">${t(language, "newComplaint")}</p>
+                        <h3>${t(language, "newComplaintDescription")}</h3>
+                      </div>
+                    </div>
+                    <label class="form-label" for="complaint-title">${t(language, "complaintTitleLabel")}</label>
+                    <input id="complaint-title" class="text-input" type="text" value="${escapeAttribute(state.complaints.draft.title || "")}" />
+                    <label class="form-label" for="complaint-customer">${t(language, "complaintCustomerLabel")}</label>
+                    <input id="complaint-customer" class="text-input" type="text" value="${escapeAttribute(state.complaints.draft.customerName || "")}" />
+                    <label class="form-label" for="complaint-email-context">${t(language, "complaintEmailContextLabel")}</label>
+                    <textarea id="complaint-email-context" class="text-area text-area--compact" placeholder="${t(language, "complaintEmailPlaceholder")}">${escapeHtml(state.complaints.draft.emailText || "")}</textarea>
+                    <div class="intake-actions">
+                      <button class="button button--secondary" data-action="open-complaint-file-picker">${t(language, "uploadComplaintFiles")}</button>
+                      <input id="complaint-file-input" class="visually-hidden" type="file" multiple />
+                      <button class="button ${state.complaints.creating ? "button--disabled" : ""}" data-action="create-complaint" ${state.complaints.creating ? "disabled" : ""}>${t(language, "createComplaint")}</button>
+                    </div>
+                    ${
+                      state.complaints.draft.files.length
+                        ? `<p class="muted">${escapeHtml(state.complaints.draft.files.map((file) => file.name).join(", "))}</p>`
+                        : ""
+                    }
+                  </div>
+                `
                 : ""
             }
-            ${renderComplaintTable(state.complaints.items, language)}
           `,
         })}
         ${
@@ -1018,6 +1041,7 @@ function renderQuoteWorkspace(state) {
   const selectedCaseId = state.quote.selectedCaseId || state.cases[0]?.caseId || "";
   const selectedCase = state.quote.selectedCase;
   const canRun = Boolean(selectedCaseId);
+  const activeQuoteVersion = getActiveQuoteVersion(selectedCase, state.quote.activeHistoryId);
 
   return {
     title: t(language, "quoteBuilderNav"),
@@ -1028,6 +1052,15 @@ function renderQuoteWorkspace(state) {
           description: t(language, "quoteWorkspaceDescription"),
           language,
           body: `
+            <div class="page-toolbar">
+              <div>
+                <p class="eyebrow">${t(language, "quoteRegistryTitle")}</p>
+                <p class="muted">${t(language, "quoteRegistryDescription")}</p>
+              </div>
+              <div class="page-toolbar__actions">
+                <button class="button ${canRun ? "" : "button--disabled"}" data-action="generate-quote-estimate" ${canRun ? "" : "disabled"}>${state.quote.quoteLoading ? t(language, "generatingQuoteEstimate") : t(language, "generateQuoteEstimate")}</button>
+              </div>
+            </div>
             ${renderQuoteRegistryTable(state.cases, selectedCaseId, language)}
             <label class="form-label" for="quote-case-select">${t(language, "selectCaseForQuote")}</label>
             <select id="quote-case-select" class="select-input" data-quote-case-select>
@@ -1038,9 +1071,7 @@ function renderQuoteWorkspace(state) {
                 )
                 .join("")}
             </select>
-            <div class="intake-actions">
-              <button class="button ${canRun ? "" : "button--disabled"}" data-action="generate-quote-estimate" ${canRun ? "" : "disabled"}>${state.quote.quoteLoading ? t(language, "generatingQuoteEstimate") : t(language, "generateQuoteEstimate")}</button>
-            </div>
+            ${renderQuoteDraftSwitcher(selectedCase, state.quote.activeHistoryId, language)}
             ${
               selectedCase?.knowledgeComparison
                 ? `
@@ -1063,11 +1094,46 @@ function renderQuoteWorkspace(state) {
           title: t(language, "quoteBuilderTitle"),
           description: t(language, "quoteBuilderDescription"),
           language,
-          body: renderQuoteBuilder(selectedCase, state.quote.emailDraft, state.quote, language),
+          body: renderQuoteBuilder(selectedCase, state.quote.emailDraft, state.quote, language, activeQuoteVersion),
         })}
       </div>
     `,
   };
+}
+
+function renderQuoteDraftSwitcher(caseData, activeHistoryId, language) {
+  const history = caseData?.quoteHistory || [];
+
+  if (!caseData?.quoteEstimate && !history.length) {
+    return "";
+  }
+
+  return `
+    <div class="summary-card quote-draft-switcher">
+      <div class="result-card__header">
+        <div>
+          <p class="eyebrow">${t(language, "quoteDraftVersionsTitle")}</p>
+          <h3>${t(language, "quoteDraftVersionsDescription")}</h3>
+        </div>
+      </div>
+      <div class="page-toolbar__actions">
+        <button class="button ${!activeHistoryId ? "" : "button--secondary"}" data-action="select-quote-draft" data-history-id="">
+          ${t(language, "currentDraft")}
+        </button>
+        ${history
+          .slice()
+          .reverse()
+          .map(
+            (entry) => `
+              <button class="button ${entry.historyId === activeHistoryId ? "" : "button--secondary"}" data-action="select-quote-draft" data-history-id="${entry.historyId}">
+                ${escapeHtml(entry.createdAt.slice(0, 16).replace("T", " "))}
+              </button>
+            `
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
 }
 
 function renderQuoteRegistryTable(cases, selectedCaseId, language) {
@@ -1314,9 +1380,10 @@ function buildCoverageSummary(comparison, language) {
   return `${supported} supported, ${partial} partial, ${missing} missing.`;
 }
 
-function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
-  const quoteEstimate = caseData?.quoteEstimate;
-  const quoteLifecycle = caseData?.quoteLifecycle || null;
+function renderQuoteBuilder(caseData, emailDraft, quoteState, language, activeQuoteVersion) {
+  const quoteEstimate = activeQuoteVersion?.quoteEstimate || caseData?.quoteEstimate;
+  const quoteLifecycle = activeQuoteVersion?.quoteLifecycle || caseData?.quoteLifecycle || null;
+  const isHistoricalView = Boolean(activeQuoteVersion?.historyEntry);
 
   if (!caseData || !quoteEstimate) {
     return `<p class="muted">${t(language, "quoteBuilderEmpty")}</p>`;
@@ -1330,12 +1397,13 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
           <h3>${escapeHtml(quoteEstimate.pricingStatus)}</h3>
           <p>${escapeHtml(quoteEstimate.summary)}</p>
           <p class="muted">${t(language, "quoteStage")}: ${escapeHtml(formatQuoteStage(quoteLifecycle, language))}</p>
+          ${isHistoricalView ? `<p class="muted">${t(language, "historicalDraftReadonly")}</p>` : ""}
         </article>
         <article class="summary-card">
           <label class="form-label" for="quote-currency">${t(language, "currency")}</label>
-          <input id="quote-currency" class="text-input" type="text" value="${escapeAttribute(quoteEstimate.currency || "USD")}" data-quote-header="currency" />
+          <input id="quote-currency" class="text-input" type="text" value="${escapeAttribute(quoteEstimate.currency || "USD")}" data-quote-header="currency" ${isHistoricalView ? "disabled" : ""} />
           <label class="form-label" for="quote-incoterm">${t(language, "incoterm")}</label>
-          <input id="quote-incoterm" class="text-input" type="text" value="${escapeAttribute(quoteEstimate.incoterm || "")}" data-quote-header="incoterm" />
+          <input id="quote-incoterm" class="text-input" type="text" value="${escapeAttribute(quoteEstimate.incoterm || "")}" data-quote-header="incoterm" ${isHistoricalView ? "disabled" : ""} />
         </article>
       </div>
       <div class="summary-card">
@@ -1379,11 +1447,11 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
                 (item) => `
                   <tr class="case-table__row">
                     <td>
-                      <input class="text-input text-input--table" type="text" value="${escapeAttribute(item.productLabel)}" data-quote-line-field="productLabel" data-line-id="${item.lineId}" />
+                      <input class="text-input text-input--table" type="text" value="${escapeAttribute(item.productLabel)}" data-quote-line-field="productLabel" data-line-id="${item.lineId}" ${isHistoricalView ? "disabled" : ""} />
                       <p class="case-table__subtext">${escapeHtml((item.supportingFiles || []).join(", ") || t(language, "noEvidenceLinked"))}</p>
                     </td>
                     <td>
-                      <input class="text-input text-input--table" type="text" value="${escapeAttribute(item.quantityText)}" data-quote-line-field="quantityText" data-line-id="${item.lineId}" />
+                      <input class="text-input text-input--table" type="text" value="${escapeAttribute(item.quantityText)}" data-quote-line-field="quantityText" data-line-id="${item.lineId}" ${isHistoricalView ? "disabled" : ""} />
                       <p class="case-table__subtext">${escapeHtml(formatQuantityBasis(item, language))}</p>
                     </td>
                     <td>
@@ -1392,19 +1460,19 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
                       <p class="case-table__subtext">${escapeHtml(item.reviewReason || t(language, "noneLabel"))}</p>
                     </td>
                     <td>
-                      <input class="text-input text-input--table" type="number" step="0.01" value="${escapeAttribute(item.baseUnitPrice)}" data-quote-line-field="baseUnitPrice" data-line-id="${item.lineId}" />
+                      <input class="text-input text-input--table" type="number" step="0.01" value="${escapeAttribute(item.baseUnitPrice)}" data-quote-line-field="baseUnitPrice" data-line-id="${item.lineId}" ${isHistoricalView ? "disabled" : ""} />
                       <p class="case-table__subtext">${escapeHtml(formatMoneyValue(quoteEstimate.currency, item.baseUnitPrice))} / ${escapeHtml(item.quantityUnit || (language === "zh" ? "单位" : "unit"))}</p>
                     </td>
                     <td>
-                      <input class="text-input text-input--table" type="number" step="0.01" value="${escapeAttribute(item.adjustmentAmount)}" data-quote-line-field="adjustmentAmount" data-line-id="${item.lineId}" />
+                      <input class="text-input text-input--table" type="number" step="0.01" value="${escapeAttribute(item.adjustmentAmount)}" data-quote-line-field="adjustmentAmount" data-line-id="${item.lineId}" ${isHistoricalView ? "disabled" : ""} />
                     </td>
                     <td>${formatMoneyValue(quoteEstimate.currency, item.unitPrice)}</td>
                     <td>
-                      <input class="text-input text-input--table text-input--flag-${String(item.reviewFlag || "").toLowerCase()}" type="number" step="0.01" value="${escapeAttribute(item.finalPrice ?? "")}" data-quote-line-final-price data-line-id="${item.lineId}" />
+                      <input class="text-input text-input--table text-input--flag-${String(item.reviewFlag || "").toLowerCase()}" type="number" step="0.01" value="${escapeAttribute(item.finalPrice ?? "")}" data-quote-line-final-price data-line-id="${item.lineId}" ${isHistoricalView ? "disabled" : ""} />
                       <p class="case-table__subtext">${item.humanReviewed ? t(language, "reviewedByHuman") : t(language, "pendingHumanReview")}</p>
                       ${item.decisionGuidance ? `<p class="case-table__subtext">${escapeHtml(formatDecisionLineGuidance(item.decisionGuidance, quoteEstimate.currency, language))}</p>` : ""}
                       <div class="case-table__actions quote-line-actions">
-                        <button class="button button--secondary button--small" data-action="toggle-line-override" data-line-id="${item.lineId}">
+                        <button class="button button--secondary button--small" data-action="toggle-line-override" data-line-id="${item.lineId}" ${isHistoricalView ? "disabled" : ""}>
                           ${item.manualOverride ? t(language, "removeOverride") : t(language, "overrideLine")}
                         </button>
                       </div>
@@ -1414,7 +1482,7 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
                       <p class="case-table__subtext">${escapeHtml(formatLineTotalBasis(item, quoteEstimate.currency, language))}</p>
                     </td>
                     <td>
-                      <input class="text-input text-input--table" type="text" value="${escapeAttribute(item.pricingBasis)}" data-quote-line-field="pricingBasis" data-line-id="${item.lineId}" />
+                      <input class="text-input text-input--table" type="text" value="${escapeAttribute(item.pricingBasis)}" data-quote-line-field="pricingBasis" data-line-id="${item.lineId}" ${isHistoricalView ? "disabled" : ""} />
                     </td>
                   </tr>
                 `
@@ -1426,7 +1494,7 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
       <div class="content-grid">
         <article class="summary-card">
           <p class="eyebrow">${t(language, "commercialTermsTitle")}</p>
-          ${renderQuoteTerms(quoteEstimate.terms || {}, language)}
+          ${renderQuoteTerms(quoteEstimate.terms || {}, language, isHistoricalView)}
         </article>
         <article class="summary-card">
           <p class="eyebrow">${t(language, "additionalCharges")}</p>
@@ -1435,7 +1503,7 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
               .map(
                 (charge) => `
                   <label class="form-label" for="${charge.chargeId}">${escapeHtml(charge.label)}</label>
-                  <input id="${charge.chargeId}" class="text-input" type="number" step="0.01" value="${escapeAttribute(charge.amount)}" data-quote-charge data-charge-id="${charge.chargeId}" />
+                  <input id="${charge.chargeId}" class="text-input" type="number" step="0.01" value="${escapeAttribute(charge.amount)}" data-quote-charge data-charge-id="${charge.chargeId}" ${isHistoricalView ? "disabled" : ""} />
                 `
               )
               .join("")}
@@ -1449,7 +1517,7 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
           <p class="muted">${t(language, "recommendedNextStep")}: ${escapeHtml(quoteEstimate.recommendedNextStep || t(language, "noneLabel"))}</p>
         </article>
       </div>
-      ${renderQuoteHistory(caseData, language)}
+      ${renderQuoteHistory(caseData, language, activeQuoteVersion?.historyEntry?.historyId || "")}
       <div class="content-grid">
         <article class="summary-card">
           <p class="eyebrow">${t(language, "assumptionsTitle")}</p>
@@ -1467,9 +1535,10 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language) {
             <h3>${t(language, "quoteEmailDescription")}</h3>
           </div>
           <div class="case-table__actions">
+            ${isHistoricalView && activeQuoteVersion?.historyEntry ? `<button class="button button--secondary" data-action="restore-quote-draft" data-history-id="${activeQuoteVersion.historyEntry.historyId}">${t(language, "restoreDraft")}</button>` : ""}
             <button class="button button--secondary" data-action="download-quote-pdf">${t(language, "downloadQuotePdf")}</button>
-            <button class="button button--secondary" data-action="generate-quote-email">${quoteState.emailLoading ? t(language, "generatingEmail") : t(language, "generateQuoteEmail")}</button>
-            <button class="button" data-action="send-quote-email">${t(language, "sendQuoteEmail")}</button>
+            <button class="button button--secondary" data-action="generate-quote-email" ${isHistoricalView ? "disabled" : ""}>${quoteState.emailLoading ? t(language, "generatingEmail") : t(language, "generateQuoteEmail")}</button>
+            <button class="button" data-action="send-quote-email" ${isHistoricalView ? "disabled" : ""}>${t(language, "sendQuoteEmail")}</button>
           </div>
         </div>
         ${quoteState.sendFeedback ? `<p class="muted">${escapeHtml(quoteState.sendFeedback)}</p>` : ""}
@@ -1572,7 +1641,7 @@ function renderDecisionRecommendation(decisionRecommendation, currency, language
   `;
 }
 
-function renderQuoteTerms(terms, language) {
+function renderQuoteTerms(terms, language, readOnly = false) {
   const fields = [
     ["buyerName", t(language, "buyerName")],
     ["buyerEmail", t(language, "buyerEmail")],
@@ -1599,6 +1668,7 @@ function renderQuoteTerms(terms, language) {
                       id="quote-term-${key}"
                       class="text-area text-area--compact quote-term-field__input"
                       data-quote-term="${key}"
+                      ${readOnly ? "disabled" : ""}
                     >${escapeHtml(terms[key] || "")}</textarea>
                   `
                   : `
@@ -1608,6 +1678,7 @@ function renderQuoteTerms(terms, language) {
                       type="text"
                       value="${escapeAttribute(terms[key] || "")}"
                       data-quote-term="${key}"
+                      ${readOnly ? "disabled" : ""}
                     />
                   `
               }
@@ -1619,7 +1690,7 @@ function renderQuoteTerms(terms, language) {
   `;
 }
 
-function renderQuoteHistory(caseData, language) {
+function renderQuoteHistory(caseData, language, activeHistoryId = "") {
   const history = caseData.quoteHistory || [];
 
   return `
@@ -1642,6 +1713,7 @@ function renderQuoteHistory(caseData, language) {
                     <th>${language === "zh" ? "阶段" : "Stage"}</th>
                     <th>${language === "zh" ? "产品明细" : "Items"}</th>
                     <th>${t(language, "total")}</th>
+                    <th>${t(language, "actions")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1650,7 +1722,7 @@ function renderQuoteHistory(caseData, language) {
                     .reverse()
                     .map(
                       (entry) => `
-                        <tr class="case-table__row">
+                        <tr class="case-table__row ${entry.historyId === activeHistoryId ? "case-table__row--active" : ""}">
                           <td>${escapeHtml(entry.createdAt.slice(0, 16).replace("T", " "))}</td>
                           <td>
                             <strong>${escapeHtml(entry.title)}</strong>
@@ -1661,6 +1733,16 @@ function renderQuoteHistory(caseData, language) {
                           <td>
                             <strong>${formatMoneyValue(entry.currency, entry.total)}</strong>
                             <p class="case-table__subtext">${escapeHtml(formatQuoteHistoryCommercialsSummary(entry, language))}</p>
+                          </td>
+                          <td>
+                            <div class="case-table__actions">
+                              <button class="button button--small ${entry.historyId === activeHistoryId ? "" : "button--secondary"}" data-action="select-quote-draft" data-history-id="${entry.historyId}">
+                                ${entry.historyId === activeHistoryId ? t(language, "viewingDraft") : t(language, "viewDraft")}
+                              </button>
+                              <button class="button button--small button--secondary" data-action="restore-quote-draft" data-history-id="${entry.historyId}">
+                                ${t(language, "restoreDraft")}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       `
@@ -1728,6 +1810,66 @@ function formatQuoteHistoryCommercialsSummary(entry, language) {
   ].filter(Boolean);
 
   return parts.join(" | ") || t(language, "noneLabel");
+}
+
+function getActiveQuoteVersion(caseData, activeHistoryId, language) {
+  if (!caseData?.quoteEstimate || !activeHistoryId) {
+    return {
+      quoteEstimate: caseData?.quoteEstimate || null,
+      quoteLifecycle: caseData?.quoteLifecycle || null,
+      historyEntry: null,
+    };
+  }
+
+  const historyEntry = (caseData.quoteHistory || []).find((entry) => entry.historyId === activeHistoryId) || null;
+
+  if (!historyEntry) {
+    return {
+      quoteEstimate: caseData.quoteEstimate,
+      quoteLifecycle: caseData.quoteLifecycle || null,
+      historyEntry: null,
+    };
+  }
+
+  const liveEstimate = caseData.quoteEstimate || {};
+
+  return {
+    historyEntry,
+    quoteLifecycle: caseData.quoteLifecycle || null,
+    quoteEstimate: {
+      ...liveEstimate,
+      pricingStatus: historyEntry.lifecycleStage || liveEstimate.pricingStatus || "",
+      currency: historyEntry.currency || liveEstimate.currency || "USD",
+      incoterm: historyEntry.incoterm || liveEstimate.incoterm || "",
+      subtotal: Number.isFinite(Number(historyEntry.subtotal)) ? Number(historyEntry.subtotal) : Number(liveEstimate.subtotal || 0),
+      total: Number.isFinite(Number(historyEntry.total)) ? Number(historyEntry.total) : Number(liveEstimate.total || 0),
+      terms: {
+        ...(liveEstimate.terms || {}),
+        ...(historyEntry.terms || {}),
+      },
+      lineItems: (historyEntry.lineItems || []).map((item, index) => {
+        const existing = (liveEstimate.lineItems || [])[index] || {};
+        return {
+          ...existing,
+          lineId: existing.lineId || `line-${index + 1}`,
+          productLabel: item.productLabel || existing.productLabel || "",
+          quantityText: item.quantityText || existing.quantityText || "",
+          quantityValue: Number(item.quantityValue || existing.quantityValue || 0),
+          quantityUnit: item.quantityUnit || existing.quantityUnit || "",
+          baseUnitPrice: Number(item.unitPrice || existing.baseUnitPrice || 0),
+          adjustmentAmount: 0,
+          unitPrice: Number(item.unitPrice || existing.unitPrice || 0),
+          finalPrice: Number(item.unitPrice || existing.finalPrice || 0),
+          lineTotal: Number(item.lineTotal || existing.lineTotal || 0),
+          pricingBasis: existing.pricingBasis || historyEntry.summary || "",
+          supportingFiles: existing.supportingFiles || [],
+          reviewFlag: existing.reviewFlag || "GREEN",
+          reviewReason: existing.reviewReason || "",
+          humanReviewed: true,
+        };
+      }),
+    },
+  };
 }
 
 function renderQuoteEmailDraft(emailDraft, language) {

@@ -142,6 +142,7 @@ const state = {
     selected: null,
     creating: false,
     deletingComplaintId: "",
+    composerOpen: false,
     draft: {
       title: "",
       customerName: "",
@@ -152,6 +153,7 @@ const state = {
   quote: {
     selectedCaseId: null,
     selectedCase: null,
+    activeHistoryId: "",
     comparing: false,
     quoteLoading: false,
     emailLoading: false,
@@ -325,6 +327,7 @@ root.addEventListener("click", async (event) => {
       const caseId = target.dataset.caseId || "";
       if (caseId) {
         state.quote.selectedCaseId = caseId;
+        state.quote.activeHistoryId = "";
         state.quote.selectedCase = withProductItems(await loadCaseDetail(caseId));
         state.quote.emailDraft = state.quote.selectedCase.quoteEmailDraft || null;
       }
@@ -433,6 +436,13 @@ root.addEventListener("click", async (event) => {
       return;
     }
 
+    if (action === "toggle-complaint-composer") {
+      event.preventDefault();
+      state.complaints.composerOpen = !state.complaints.composerOpen;
+      mount();
+      return;
+    }
+
     if (action === "delete-complaint") {
       event.preventDefault();
       await deleteComplaint(target.dataset.complaintId);
@@ -500,6 +510,19 @@ root.addEventListener("click", async (event) => {
     if (action === "generate-quote-estimate") {
       event.preventDefault();
       await runQuoteEstimate();
+      return;
+    }
+
+    if (action === "select-quote-draft") {
+      event.preventDefault();
+      state.quote.activeHistoryId = target.dataset.historyId || "";
+      mount();
+      return;
+    }
+
+    if (action === "restore-quote-draft") {
+      event.preventDefault();
+      await restoreQuoteDraft(target.dataset.historyId || "");
       return;
     }
 
@@ -618,6 +641,7 @@ root.addEventListener("change", async (event) => {
 
       if (target.matches("[data-quote-case-select]")) {
         state.quote.selectedCaseId = target.value || null;
+        state.quote.activeHistoryId = "";
         state.quote.emailDraft = null;
         state.quote.sendFeedback = "";
 
@@ -1199,6 +1223,7 @@ async function openCase(caseId) {
   const caseRecord = await loadCaseDetail(caseId);
   state.selectedCaseId = caseId;
   state.quote.selectedCaseId = caseId;
+  state.quote.activeHistoryId = "";
   state.selectedCase = withProductItems(caseRecord);
   state.selectedProductIndex = 0;
   state.modalOpen = true;
@@ -1317,6 +1342,7 @@ async function submitComplaint() {
     });
     state.complaints.items = [buildComplaintSummary(response.complaint), ...state.complaints.items];
     state.complaints.selected = response.complaint;
+    state.complaints.composerOpen = false;
     state.complaints.draft = {
       title: "",
       customerName: "",
@@ -1420,6 +1446,7 @@ async function runQuoteEstimate() {
   }
 
   state.error = "";
+  state.quote.activeHistoryId = "";
   state.quote.quoteLoading = true;
   mount();
 
@@ -1478,6 +1505,7 @@ async function saveQuoteSnapshot() {
   );
 
   syncUpdatedCase(response.case);
+  state.quote.activeHistoryId = "";
   state.quote.sendFeedback =
     state.language === "zh"
       ? "已保存报价版本记录。"
@@ -1529,6 +1557,36 @@ async function approveCurrentQuote() {
   syncUpdatedCase(response.case);
   state.quote.sendFeedback =
     state.language === "zh" ? "报价已批准，可继续发送与跟进。" : "Quote approved. It is ready to send and track.";
+  mount();
+}
+
+async function restoreQuoteDraft(historyId) {
+  if (!state.quote.selectedCase || !historyId) {
+    return;
+  }
+
+  const historyEntry = (state.quote.selectedCase.quoteHistory || []).find((entry) => entry.historyId === historyId);
+
+  if (!historyEntry) {
+    return;
+  }
+
+  const restoredEstimate = buildQuoteEstimateFromHistoryEntry(historyEntry, state.quote.selectedCase, state.language);
+
+  state.error = "";
+  state.quote.sendFeedback = "";
+  mount();
+
+  const response = await updateCase(state.quote.selectedCase.caseId, {
+    quoteEstimate: restoredEstimate,
+  });
+
+  syncUpdatedCase(response.case);
+  state.quote.activeHistoryId = "";
+  state.quote.sendFeedback =
+    state.language === "zh"
+      ? "已将选中的报价版本恢复为当前草稿。"
+      : "Selected quote version restored as the current draft.";
   mount();
 }
 
@@ -1966,6 +2024,53 @@ function ensureQuoteEstimate(caseRecord) {
     supportingFiles: [],
     recommendedNextStep: "",
     summary: "",
+  };
+}
+
+function buildQuoteEstimateFromHistoryEntry(historyEntry, caseRecord, language) {
+  const currentEstimate = ensureQuoteEstimate(caseRecord);
+  const currentLineItems = currentEstimate.lineItems || [];
+  const currentAdditionalCharges = currentEstimate.additionalCharges || [];
+  const totalFromLines = (historyEntry.lineItems || []).reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
+
+  return {
+    ...currentEstimate,
+    pricingStatus: historyEntry.lifecycleStage || currentEstimate.pricingStatus || (language === "zh" ? "草稿报价" : "Draft quote"),
+    currency: historyEntry.currency || currentEstimate.currency || "USD",
+    incoterm: historyEntry.incoterm || currentEstimate.incoterm || "",
+    subtotal: Number.isFinite(Number(historyEntry.subtotal)) ? Number(historyEntry.subtotal) : totalFromLines,
+    total: Number.isFinite(Number(historyEntry.total)) ? Number(historyEntry.total) : totalFromLines,
+    lineItems: (historyEntry.lineItems || []).map((item, index) => {
+      const existing = currentLineItems[index] || {};
+      const unitPrice = Number(item.unitPrice || 0);
+      const lineTotal = Number(item.lineTotal || 0);
+      const quantityValue = Number(item.quantityValue || 0);
+
+      return {
+        ...existing,
+        lineId: existing.lineId || `line-${index + 1}`,
+        productId: existing.productId || `product-${index + 1}`,
+        productLabel: item.productLabel || existing.productLabel || `${language === "zh" ? "产品" : "Product"} ${index + 1}`,
+        quantityText: item.quantityText || existing.quantityText || "",
+        quantityValue: Number.isFinite(quantityValue) ? quantityValue : Number(existing.quantityValue || 0),
+        quantityUnit: item.quantityUnit || existing.quantityUnit || "",
+        baseUnitPrice: unitPrice,
+        adjustmentAmount: 0,
+        unitPrice,
+        finalPrice: unitPrice,
+        lineTotal,
+        pricingBasis: existing.pricingBasis || historyEntry.summary || "",
+        supportingFiles: existing.supportingFiles || [],
+        reviewFlag: existing.reviewFlag || "GREEN",
+        reviewReason: existing.reviewReason || (language === "zh" ? "从历史报价版本恢复。" : "Restored from quote history."),
+        humanReviewed: true,
+      };
+    }),
+    additionalCharges: currentAdditionalCharges,
+    terms: {
+      ...(currentEstimate.terms || {}),
+      ...(historyEntry.terms || {}),
+    },
   };
 }
 
