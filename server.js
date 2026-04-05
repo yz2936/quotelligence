@@ -804,8 +804,12 @@ export async function handleRequest(req, res) {
 
     if (url.pathname === "/api/outcomes/pending" && req.method === "GET") {
       const cases = await listCases(requestOwnerId);
+      const items = buildPendingOutcomes(cases);
+      const completedItems = buildCompletedOutcomes(cases);
       return sendJson(res, 200, {
-        items: buildPendingOutcomes(cases),
+        items,
+        completedItems,
+        summary: buildNegotiationSummary(items, completedItems),
       });
     }
 
@@ -1190,6 +1194,43 @@ function buildPendingOutcomes(cases, now = new Date()) {
 
       return String(a.followUpDue || "").localeCompare(String(b.followUpDue || ""));
     });
+}
+
+function buildCompletedOutcomes(cases) {
+  return cases
+    .filter((caseRecord) => {
+      const lifecycle = ensureQuoteLifecycle(caseRecord);
+      return ["won", "lost", "no_response"].includes(String(lifecycle.outcome || lifecycle.status || "").trim().toLowerCase());
+    })
+    .map((caseRecord) => {
+      const lifecycle = ensureQuoteLifecycle(caseRecord);
+      return {
+        caseId: caseRecord.caseId,
+        quoteNumber: lifecycle.quoteNumber,
+        customerName: caseRecord.customerName,
+        projectName: caseRecord.projectName,
+        status: lifecycle.status,
+        outcome: lifecycle.outcome || lifecycle.status,
+        recordedAt: lifecycle.recordedAt,
+        recordedBy: lifecycle.recordedBy || "",
+        finalPrice: lifecycle.finalPrice,
+        lossReason: lifecycle.lossReason || "",
+        competitorPrice: lifecycle.competitorPrice,
+        totalValue: lifecycle.totalValue,
+        currency: lifecycle.currency || "USD",
+      };
+    })
+    .sort((a, b) => String(b.recordedAt || "").localeCompare(String(a.recordedAt || "")));
+}
+
+function buildNegotiationSummary(activeItems, completedItems) {
+  return {
+    activeCount: activeItems.length,
+    completedCount: completedItems.length,
+    wonCount: completedItems.filter((item) => item.outcome === "won").length,
+    lostCount: completedItems.filter((item) => item.outcome === "lost").length,
+    noResponseCount: completedItems.filter((item) => item.outcome === "no_response").length,
+  };
 }
 
 function buildDashboardStats({ cases, knowledgeFiles = [], complaints = [] }, now = new Date()) {

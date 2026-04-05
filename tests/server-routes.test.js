@@ -389,6 +389,42 @@ test("pending outcomes route includes sent quotes even before they are overdue",
   assert.equal(payload.items.length, 1);
   assert.equal(payload.items[0].caseId, "QC-PENDING");
   assert.equal(payload.items[0].status, "sent");
+  assert.ok(Array.isArray(payload.completedItems));
+  assert.equal(typeof payload.summary.activeCount, "number");
+});
+
+test("pending outcomes route returns completed negotiation records", async () => {
+  __resetStoreForTests();
+  await saveCase({
+    caseId: "QC-WON",
+    createdAt: "2026-03-29",
+    updatedAt: "2026-03-29",
+    customerName: "HeatEx",
+    projectName: "Expansion",
+    quoteEstimate: {
+      currency: "USD",
+      total: 12000,
+      lineItems: [{ reviewFlag: "GREEN" }],
+    },
+    quoteLifecycle: {
+      status: "won",
+      outcome: "won",
+      recordedAt: "2026-03-30T10:00:00.000Z",
+      recordedBy: "eric@company.com",
+      finalPrice: 11800,
+    },
+  });
+
+  const response = await invokeRoute({
+    method: "GET",
+    url: "/api/outcomes/pending",
+  });
+
+  assert.equal(response.statusCode, 200);
+  const payload = JSON.parse(response.body);
+  assert.equal(payload.completedItems.length, 1);
+  assert.equal(payload.completedItems[0].caseId, "QC-WON");
+  assert.equal(payload.completedItems[0].outcome, "won");
 });
 
 test("quote approval route allows manually overridden red lines with final prices", async () => {

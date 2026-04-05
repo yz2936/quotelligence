@@ -1983,14 +1983,22 @@ function formatDecisionLineGuidance(guidance, currency, language) {
 function renderOutcomesPage(state) {
   const language = state.language;
   const items = state.outcomes.items || [];
+  const completedItems = state.outcomes.completedItems || [];
+  const summary = state.outcomes.summary || { activeCount: items.length, completedCount: completedItems.length, wonCount: 0, lostCount: 0, noResponseCount: 0 };
 
   return {
     title: t(language, "outcomesNav"),
     body: `
       <div class="content-stack quote-workspace">
+        <div class="content-grid">
+          ${renderMetricCard(t(language, "negotiationActiveCard"), String(summary.activeCount || 0))}
+          ${renderMetricCard(t(language, "negotiationCompletedCard"), String(summary.completedCount || 0))}
+          ${renderMetricCard(t(language, "negotiationWonCard"), String(summary.wonCount || 0))}
+          ${renderMetricCard(t(language, "negotiationLostCard"), String(summary.lostCount || 0))}
+        </div>
         ${renderSection({
-          title: t(language, "outcomesTitle"),
-          description: t(language, "outcomesDescription"),
+          title: t(language, "negotiationActiveTitle"),
+          description: t(language, "negotiationActiveDescription"),
           language,
           body:
             items.length
@@ -2048,9 +2056,79 @@ function renderOutcomesPage(state) {
                   .join("")
               : `<div class="state-empty"><p>${t(language, "noPendingOutcomes")}</p></div>`,
         })}
+        ${renderSection({
+          title: t(language, "negotiationCompletedTitle"),
+          description: t(language, "negotiationCompletedDescription"),
+          language,
+          body:
+            completedItems.length
+              ? `
+                  <div class="table-shell">
+                    <table class="case-table quote-history-table">
+                      <thead>
+                        <tr>
+                          <th>${t(language, "updatedCol")}</th>
+                          <th>${t(language, "customer")}</th>
+                          <th>${t(language, "project")}</th>
+                          <th>${t(language, "status")}</th>
+                          <th>${t(language, "total")}</th>
+                          <th>${t(language, "negotiationOutcomeDetails")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${completedItems
+                          .map(
+                            (item) => `
+                              <tr class="case-table__row">
+                                <td>${escapeHtml(String(item.recordedAt || "").slice(0, 10) || t(language, "noneLabel"))}</td>
+                                <td>${escapeHtml(item.customerName || t(language, "noneLabel"))}</td>
+                                <td>${escapeHtml(item.projectName || t(language, "noneLabel"))}</td>
+                                <td>${escapeHtml(formatQuoteStage({ status: item.outcome || item.status }, language))}</td>
+                                <td>${formatMoneyValue(item.currency || "USD", item.finalPrice || item.totalValue || 0)}</td>
+                                <td>${escapeHtml(formatNegotiationOutcomeDetails(item, language))}</td>
+                              </tr>
+                            `
+                          )
+                          .join("")}
+                      </tbody>
+                    </table>
+                  </div>
+                `
+              : `<div class="state-empty"><p>${t(language, "negotiationCompletedEmpty")}</p></div>`,
+        })}
       </div>
     `,
   };
+}
+
+function formatNegotiationOutcomeDetails(item, language) {
+  const parts = [];
+
+  if (Number.isFinite(Number(item.finalPrice))) {
+    parts.push(
+      language === "zh"
+        ? `最终价格 ${formatMoneyValue(item.currency || "USD", item.finalPrice)}`
+        : `Final price ${formatMoneyValue(item.currency || "USD", item.finalPrice)}`
+    );
+  }
+
+  if (item.lossReason) {
+    parts.push(language === "zh" ? `丢单原因 ${item.lossReason}` : `Loss reason ${item.lossReason}`);
+  }
+
+  if (Number.isFinite(Number(item.competitorPrice))) {
+    parts.push(
+      language === "zh"
+        ? `竞争对手价格 ${formatMoneyValue(item.currency || "USD", item.competitorPrice)}`
+        : `Competitor price ${formatMoneyValue(item.currency || "USD", item.competitorPrice)}`
+    );
+  }
+
+  if (item.recordedBy) {
+    parts.push(language === "zh" ? `记录人 ${item.recordedBy}` : `Recorded by ${item.recordedBy}`);
+  }
+
+  return parts.join(language === "zh" ? "；" : " | ") || t(language, "noneLabel");
 }
 
 function renderDashboardPage(state) {

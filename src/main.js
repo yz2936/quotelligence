@@ -168,6 +168,8 @@ const state = {
   },
   outcomes: {
     items: [],
+    completedItems: [],
+    summary: null,
     forms: {},
     loading: false,
   },
@@ -958,6 +960,8 @@ async function syncRouteData() {
         state.outcomes.loading = true;
         const response = await fetchPendingOutcomes();
         state.outcomes.items = response.items;
+        state.outcomes.completedItems = Array.isArray(response.completedItems) ? response.completedItems : [];
+        state.outcomes.summary = response.summary || null;
         state.outcomes.loading = false;
       }
 
@@ -1723,8 +1727,14 @@ async function submitOutcome(caseId) {
 
   const response = await logQuoteOutcome(payload);
   syncUpdatedCase(response.case);
-  state.outcomes.items = state.outcomes.items.filter((item) => item.caseId !== caseId);
   delete state.outcomes.forms[caseId];
+
+  if (window.location.hash === "#/outcomes") {
+    const outcomesResponse = await fetchPendingOutcomes();
+    state.outcomes.items = outcomesResponse.items;
+    state.outcomes.completedItems = Array.isArray(outcomesResponse.completedItems) ? outcomesResponse.completedItems : [];
+    state.outcomes.summary = outcomesResponse.summary || null;
+  }
 
   if (window.location.hash === "#/dashboard") {
     const statsResponse = await fetchDashboardStats();
@@ -2570,6 +2580,8 @@ function clearWorkspaceState() {
   state.quote.selectedCase = null;
   state.knowledge.files = [];
   state.outcomes.items = [];
+  state.outcomes.completedItems = [];
+  state.outcomes.summary = null;
   state.outcomes.forms = {};
   state.dashboard.stats = null;
   state.analyst.messages = [];
