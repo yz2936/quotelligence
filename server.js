@@ -1164,10 +1164,12 @@ function buildPendingOutcomes(cases, now = new Date()) {
   return cases
     .filter((caseRecord) => {
       const lifecycle = ensureQuoteLifecycle(caseRecord);
-      return lifecycle.status === "sent" && lifecycle.followUpDue && new Date(lifecycle.followUpDue) <= now;
+      return ["sent", "negotiating"].includes(String(lifecycle.status || "").trim().toLowerCase()) && lifecycle.followUpDue;
     })
     .map((caseRecord) => {
       const lifecycle = ensureQuoteLifecycle(caseRecord);
+      const followUpDueDate = new Date(lifecycle.followUpDue);
+      const daysOverdue = Number.isNaN(followUpDueDate.getTime()) ? 0 : Math.max(0, differenceInDays(now, lifecycle.followUpDue));
       return {
         caseId: caseRecord.caseId,
         quoteNumber: lifecycle.quoteNumber,
@@ -1175,12 +1177,19 @@ function buildPendingOutcomes(cases, now = new Date()) {
         projectName: caseRecord.projectName,
         sentAt: lifecycle.sentAt,
         followUpDue: lifecycle.followUpDue,
-        daysOverdue: differenceInDays(now, lifecycle.followUpDue),
+        daysOverdue,
+        status: lifecycle.status,
         totalValue: lifecycle.totalValue,
         currency: lifecycle.currency || "USD",
       };
     })
-    .sort((a, b) => String(a.followUpDue || "").localeCompare(String(b.followUpDue || "")));
+    .sort((a, b) => {
+      if ((b.daysOverdue || 0) !== (a.daysOverdue || 0)) {
+        return (b.daysOverdue || 0) - (a.daysOverdue || 0);
+      }
+
+      return String(a.followUpDue || "").localeCompare(String(b.followUpDue || ""));
+    });
 }
 
 function buildDashboardStats({ cases, knowledgeFiles = [], complaints = [] }, now = new Date()) {

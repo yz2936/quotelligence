@@ -359,6 +359,38 @@ test("dashboard stats route returns JSON insight payload", async () => {
   assert.ok(Array.isArray(payload.stats.knowledgeCategoryMix));
 });
 
+test("pending outcomes route includes sent quotes even before they are overdue", async () => {
+  __resetStoreForTests();
+  await saveCase({
+    caseId: "QC-PENDING",
+    createdAt: "2026-03-29",
+    updatedAt: "2026-03-29",
+    customerName: "Acme",
+    projectName: "Pilot",
+    quoteEstimate: {
+      currency: "USD",
+      total: 9500,
+      lineItems: [{ reviewFlag: "GREEN" }],
+    },
+    quoteLifecycle: {
+      status: "sent",
+      sentAt: "2026-03-29T10:00:00.000Z",
+      followUpDue: "2099-03-30T10:00:00.000Z",
+    },
+  });
+
+  const response = await invokeRoute({
+    method: "GET",
+    url: "/api/outcomes/pending",
+  });
+
+  assert.equal(response.statusCode, 200);
+  const payload = JSON.parse(response.body);
+  assert.equal(payload.items.length, 1);
+  assert.equal(payload.items[0].caseId, "QC-PENDING");
+  assert.equal(payload.items[0].status, "sent");
+});
+
 test("quote approval route allows manually overridden red lines with final prices", async () => {
   __resetStoreForTests();
   await saveCase({

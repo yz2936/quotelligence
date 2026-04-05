@@ -1410,6 +1410,11 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language, activeQu
             <p class="eyebrow">${t(language, "reviewActionsTitle")}</p>
             <h3>${t(language, "reviewActionsDescription")}</h3>
           </div>
+          <div class="case-table__actions">
+            <button class="button button--secondary" data-action="save-quote-snapshot" ${isHistoricalView ? "disabled" : ""}>${t(language, "saveQuoteVersion")}</button>
+            <button class="button button--secondary" data-action="approve-current-quote" ${isHistoricalView ? "disabled" : ""}>${t(language, "approveQuoteCta")}</button>
+            <button class="button" data-action="mark-quote-sent" ${isHistoricalView ? "disabled" : ""}>${t(language, "markQuoteSent")}</button>
+          </div>
         </div>
         <div class="summary-structure">
           <div>
@@ -1999,7 +2004,7 @@ function renderOutcomesPage(state) {
                           <div>
                             <p class="eyebrow">${escapeHtml(item.quoteNumber || item.caseId)}</p>
                             <h3>${escapeHtml(item.customerName)} • ${escapeHtml(item.projectName || t(language, "noneLabel"))}</h3>
-                            <p class="muted">${t(language, "followUpDueLabel")}: ${escapeHtml(String(item.followUpDue || "").slice(0, 10))} • ${t(language, "daysOverdueLabel")}: ${escapeHtml(String(item.daysOverdue || 0))}</p>
+                            <p class="muted">${t(language, "quoteStage")}: ${escapeHtml(formatQuoteStage({ status: item.status || "sent" }, language))} • ${t(language, "followUpDueLabel")}: ${escapeHtml(String(item.followUpDue || "").slice(0, 10))} • ${t(language, "daysOverdueLabel")}: ${escapeHtml(String(item.daysOverdue || 0))}</p>
                           </div>
                           <div><p>${formatMoneyValue(item.currency || "USD", item.totalValue || 0)}</p></div>
                         </div>
