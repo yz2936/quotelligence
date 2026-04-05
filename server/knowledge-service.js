@@ -5,7 +5,6 @@ import { runAgent3, runAgent4, mapPipelineToQuoteEstimate } from "./agent-pipeli
 
 import {
   compareCaseToKnowledgeBase,
-  extractPdfTextWithOpenAI,
   generateKnowledgeFileMetadata,
   generateKnowledgeFileSummary,
   generateQuoteEstimateFromKnowledge,
@@ -328,18 +327,6 @@ async function normalizeKnowledgeFile(file, index, now, language) {
     type,
     buffer,
   });
-
-  if (type === "PDF" && !extractedText.trim() && String(process.env.OPENAI_API_KEY || "").trim()) {
-    try {
-      extractedText = await extractPdfTextWithOpenAI({
-        fileName: name,
-        buffer,
-        language,
-      });
-    } catch (error) {
-      console.error("OpenAI PDF OCR fallback failed during knowledge upload:", error);
-    }
-  }
 
   const workbook = await extractWorkbookSheetsFromBuffer({
     fileName: name,
@@ -960,7 +947,10 @@ async function buildKnowledgeMetadata({ name, type, extractedText, workbookPrevi
   if (!textReadable || !extractedText) {
     return {
       category: classifyKnowledgeFile(name, ""),
-      summary: "Readable document text was insufficient for a grounded summary.",
+      summary:
+        language === "zh"
+          ? "该文件已上传，但暂时未能提取到足够文本，文本信息不足以生成可靠摘要。可稍后在预览中手动核查。"
+          : "The file was uploaded, but not enough text could be extracted for a grounded summary. Readable text was insufficient, so review it manually in preview.",
     };
   }
 

@@ -96,30 +96,41 @@ function normalizeSchedule(raw) {
 
 // ─── Dimension Parsing ────────────────────────────────────────────────────────
 
-function parseMillimeters(text) {
+function parseMillimeters(text, { allowNominalNps = false, defaultUnit = "mm" } = {}) {
   if (!text) return null;
   const s = String(text).trim().toLowerCase();
+  const hasExplicitMillimeterUnit = /mm/.test(s);
+  const hasExplicitInchUnit = /in\b|"/.test(s);
+  const hasExplicitUnit = hasExplicitMillimeterUnit || hasExplicitInchUnit;
   const numeric = parseFloat(s.replace(/[^\d.]/g, ""));
   if (Number.isNaN(numeric) || numeric <= 0) return null;
 
   // Explicit mm
-  if (/mm/.test(s)) return numeric;
+  if (hasExplicitMillimeterUnit) return numeric;
   // Explicit inches — convert to mm
-  if (/in\b|"/.test(s)) return parseFloat((numeric * 25.4).toFixed(3));
+  if (hasExplicitInchUnit) return parseFloat((numeric * 25.4).toFixed(3));
   // NPS fraction notation → look up OD
   const fractMatch = s.match(/^(\d+)\/(\d+)/);
-  if (fractMatch) {
+  if (allowNominalNps && fractMatch) {
     const key = `${fractMatch[1]}/${fractMatch[2]}`;
     return NPS_TO_OD_MM[key] || null;
   }
   // Check if it looks like a nominal pipe size (small whole number → treat as NPS → look up OD)
-  if (numeric <= 24 && Number.isInteger(numeric)) {
+  if (allowNominalNps && numeric <= 24 && Number.isInteger(numeric)) {
     const npsOd = NPS_TO_OD_MM[String(numeric)];
     if (npsOd) return npsOd; // caller must distinguish OD vs NPS usage
   }
 
-  // Default: assume mm for anything > 20, inches for anything ≤ 20 and no unit
-  return numeric > 20 ? numeric : parseFloat((numeric * 25.4).toFixed(3));
+  if (allowNominalNps && !hasExplicitUnit && numeric < 25) {
+    return null;
+  }
+
+  if (defaultUnit === "in") {
+    return parseFloat((numeric * 25.4).toFixed(3));
+  }
+
+  // Default conservatively to millimeters when no unit is stated.
+  return numeric;
 }
 
 // ─── ASME Table Lookup ────────────────────────────────────────────────────────
@@ -185,8 +196,8 @@ export function validateProductItemSpecs(productItems) {
   _flagCounter = 0;
   return (productItems || []).map((item) => {
     const flags = [];
-    const odMm    = parseMillimeters(item.outsideDimension);
-    const wtMm    = parseMillimeters(item.wallThickness);
+    const odMm    = parseMillimeters(item.outsideDimension, { allowNominalNps: true, defaultUnit: "mm" });
+    const wtMm    = parseMillimeters(item.wallThickness, { allowNominalNps: false, defaultUnit: "mm" });
     const schedRaw = item.schedule && !/not clearly stated/i.test(item.schedule) ? item.schedule : null;
     const schedKey = schedRaw ? normalizeSchedule(schedRaw) : null;
     const hasOd    = odMm && odMm > 0;

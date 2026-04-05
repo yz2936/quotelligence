@@ -44,6 +44,35 @@ test("intake route returns JSON 422 when a PDF cannot be parsed", async () => {
   assert.equal(JSON.parse(response.body).error, "cannot parse PDF");
 });
 
+test("knowledge upload accepts unreadable PDFs and stores a fallback summary", async () => {
+  __resetStoreForTests();
+
+  const formData = new FormData();
+  formData.append(
+    "knowledge_files",
+    new File(["%PDF-1.6 unreadable"], "reference.pdf", { type: "application/pdf" })
+  );
+  formData.append("language", "en");
+
+  const request = new Request("http://localhost/api/knowledge/upload", {
+    method: "POST",
+    body: formData,
+  });
+
+  const response = await invokeRoute({
+    method: "POST",
+    url: "/api/knowledge/upload",
+    headers: Object.fromEntries(request.headers.entries()),
+    body: Buffer.from(await request.arrayBuffer()),
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.match(String(response.headers["content-type"] || ""), /application\/json/i);
+  const payload = JSON.parse(response.body);
+  assert.equal(payload.knowledgeFiles.length, 1);
+  assert.match(payload.knowledgeFiles[0].summary, /uploaded|not enough text|文本/i);
+});
+
 test("delete case route removes a stored case", async () => {
   __resetStoreForTests();
   await saveCase({

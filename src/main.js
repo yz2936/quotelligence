@@ -27,8 +27,6 @@ import {
   updateCase,
   uploadKnowledgeFiles,
   runComplianceCheck,
-  fetchSupplierMatrix,
-  refreshClarificationQuestions,
 } from "./api.js";
 import { confidenceLabel, t } from "./i18n.js";
 import {
@@ -154,8 +152,6 @@ const state = {
     emailLoading: false,
     emailDraft: null,
     sendFeedback: "",
-    supplierMatrix: null,
-    supplierMatrixLoading: false,
   },
   outcomes: {
     items: [],
@@ -465,19 +461,6 @@ root.addEventListener("click", async (event) => {
       event.preventDefault();
       const targetCaseId = target.dataset.caseId || state.selectedCase?.caseId || state.quote.selectedCaseId;
       if (targetCaseId) await runComplianceCheckAction(targetCaseId);
-      return;
-    }
-
-    if (action === "load-supplier-matrix") {
-      event.preventDefault();
-      await loadSupplierMatrix();
-      return;
-    }
-
-    if (action === "refresh-clarification-questions") {
-      event.preventDefault();
-      const targetCaseId = target.dataset.caseId || state.selectedCase?.caseId || state.quote.selectedCaseId;
-      if (targetCaseId) await runRefreshClarifications(targetCaseId);
       return;
     }
 
@@ -1362,37 +1345,6 @@ async function runComplianceCheckAction(caseId) {
     syncUpdatedCase(response.case);
   } catch (err) {
     state.error = err.message || "Compliance check failed.";
-    mount();
-  }
-}
-
-async function loadSupplierMatrix() {
-  if (!state.quote.selectedCaseId) return;
-  state.quote.supplierMatrixLoading = true;
-  mount();
-  try {
-    const response = await fetchSupplierMatrix(
-      state.quote.selectedCaseId,
-      state.language,
-      state.quote.selectedCase || null
-    );
-    state.quote.supplierMatrix = response.supplierMatrix;
-  } catch (err) {
-    state.error = err.message || "Supplier matrix load failed.";
-  } finally {
-    state.quote.supplierMatrixLoading = false;
-    mount();
-  }
-}
-
-async function runRefreshClarifications(caseId) {
-  state.error = "";
-  mount();
-  try {
-    const response = await refreshClarificationQuestions(caseId, state.language, state.selectedCase || null);
-    syncUpdatedCase(response.case);
-  } catch (err) {
-    state.error = err.message || "Clarification refresh failed.";
     mount();
   }
 }
