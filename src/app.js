@@ -35,6 +35,7 @@ export function renderApp(root, state, currentHash) {
     selectedProductIndex: state.selectedProductIndex || 0,
     summaryLoadingId: state.knowledge.summaryLoadingId || "",
     deletingFileId: state.knowledge.deletingFileId || "",
+    deletingComplaintId: state.complaints.deletingComplaintId || "",
   };
   root.innerHTML = `
     <div class="app-shell ${state.sidebarCollapsed ? "app-shell--collapsed" : ""}">
@@ -993,9 +994,14 @@ function renderComplaintTable(items, language) {
                   <td>${escapeHtml(String(item.attachmentCount || 0))}</td>
                   <td>${escapeHtml(item.summary || t(language, "noneLabel"))}</td>
                   <td>
-                    <button class="button button--small button--secondary" data-action="open-complaint" data-complaint-id="${item.complaintId}">
-                      ${t(language, "openComplaint")}
-                    </button>
+                    <div class="case-table__actions">
+                      <button class="button button--small button--secondary" data-action="open-complaint" data-complaint-id="${item.complaintId}">
+                        ${t(language, "openComplaint")}
+                      </button>
+                      <button class="button button--small button--secondary" data-action="delete-complaint" data-complaint-id="${item.complaintId}">
+                        ${item.complaintId === stateForRender.deletingComplaintId ? t(language, "deletingComplaint") : t(language, "deleteComplaint")}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               `

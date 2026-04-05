@@ -162,6 +162,45 @@ export async function saveComplaint(complaintRecord, ownerUserId = "") {
   return recordToSave;
 }
 
+export async function deleteComplaint(complaintId, ownerUserId = "") {
+  if (shouldUseDatabase()) {
+    await ensureDatabaseSchema();
+    const scope = normalizeOwnerScope(ownerUserId);
+    const result = scope
+      ? await getPool().query(
+          `
+            DELETE FROM complaints
+            WHERE complaint_id = $1 AND owner_user_id = $2
+          `,
+          [complaintId, scope]
+        )
+      : await getPool().query(
+          `
+            DELETE FROM complaints
+            WHERE complaint_id = $1
+          `,
+          [complaintId]
+        );
+
+    return result.rowCount > 0;
+  }
+
+  const store = loadFileStore();
+  const nextComplaints = store.complaints.filter(
+    (entry) => !(entry.complaintId === complaintId && matchesOwnerScope(entry, ownerUserId))
+  );
+
+  if (nextComplaints.length === store.complaints.length) {
+    return false;
+  }
+
+  writeFileStore({
+    ...store,
+    complaints: nextComplaints,
+  });
+  return true;
+}
+
 export async function getCase(caseId, ownerUserId = "") {
   if (shouldUseDatabase()) {
     await ensureDatabaseSchema();

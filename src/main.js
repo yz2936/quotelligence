@@ -5,6 +5,7 @@ import {
   createComplaintRecord,
   createCaseFromIntake,
   deleteCase as deleteCaseRequest,
+  deleteComplaint as deleteComplaintRequest,
   deleteKnowledgeFile as deleteKnowledgeFileRequest,
   fetchComplaint,
   fetchComplaints,
@@ -140,6 +141,7 @@ const state = {
     items: [],
     selected: null,
     creating: false,
+    deletingComplaintId: "",
     draft: {
       title: "",
       customerName: "",
@@ -428,6 +430,12 @@ root.addEventListener("click", async (event) => {
     if (action === "create-complaint") {
       event.preventDefault();
       await submitComplaint();
+      return;
+    }
+
+    if (action === "delete-complaint") {
+      event.preventDefault();
+      await deleteComplaint(target.dataset.complaintId);
       return;
     }
 
@@ -1317,6 +1325,30 @@ async function submitComplaint() {
     };
   } finally {
     state.complaints.creating = false;
+    mount();
+  }
+}
+
+async function deleteComplaint(complaintId) {
+  if (!complaintId) {
+    return;
+  }
+
+  const confirmed = globalThis.confirm?.(t(state.language, "deleteComplaintConfirm"));
+
+  if (confirmed === false) {
+    return;
+  }
+
+  state.error = "";
+  state.complaints.deletingComplaintId = complaintId;
+  mount();
+
+  try {
+    await deleteComplaintRequest(complaintId);
+    removeComplaintFromState(complaintId);
+  } finally {
+    state.complaints.deletingComplaintId = "";
     mount();
   }
 }
@@ -2357,6 +2389,14 @@ function removeKnowledgeFileFromState(knowledgeFileId) {
   if (state.knowledge.selectedFile?.knowledgeFileId === knowledgeFileId) {
     state.knowledge.selectedFile = null;
     state.knowledge.previewOpen = false;
+  }
+}
+
+function removeComplaintFromState(complaintId) {
+  state.complaints.items = state.complaints.items.filter((item) => item.complaintId !== complaintId);
+
+  if (state.complaints.selected?.complaintId === complaintId) {
+    state.complaints.selected = null;
   }
 }
 

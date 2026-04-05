@@ -10,7 +10,7 @@ import { buildCaseFromSubmission, deriveCaseStatus, deriveMissingInfo, getAllowe
 import { answerWorkspaceQuestion } from "./server/openai-client.js";
 import { buildComplianceTraceability, buildKnowledgeComparison, buildKnowledgeFilesFromUpload, deriveKnowledgeStatus, getKnowledgeCategories, normalizeStoredQuoteEstimate, summarizeKnowledgeFile } from "./server/knowledge-service.js";
 import { buildQuoteDraft, buildQuoteEmail, buildQuoteDocument } from "./server/quote-service.js";
-import { deleteCase, deleteKnowledgeFile, getCase, getComplaint, getKnowledgeFile, getStoreHealth, getStoreMode, listCases, listComplaints, listKnowledgeFiles, saveCase, saveComplaint, saveKnowledgeFile } from "./server/store.js";
+import { deleteCase, deleteComplaint, deleteKnowledgeFile, getCase, getComplaint, getKnowledgeFile, getStoreHealth, getStoreMode, listCases, listComplaints, listKnowledgeFiles, saveCase, saveComplaint, saveKnowledgeFile } from "./server/store.js";
 import { authenticateRequest, getPublicSupabaseConfig } from "./server/supabase-auth.js";
 import { applyCheckpointDecision, syncCaseWorkflow } from "./server/workflow-engine.js";
 
@@ -164,6 +164,17 @@ export async function handleRequest(req, res) {
 
       await saveComplaint(complaint, requestOwnerId);
       return sendJson(res, 201, { complaint });
+    }
+
+    if (url.pathname.startsWith("/api/complaints/") && req.method === "DELETE") {
+      const complaintId = decodeURIComponent(url.pathname.split("/").pop());
+      const deleted = await deleteComplaint(complaintId, requestOwnerId);
+
+      if (!deleted) {
+        return sendJson(res, 404, { error: "Complaint not found" });
+      }
+
+      return sendJson(res, 200, { deletedComplaintId: complaintId });
     }
 
     if (url.pathname === "/api/knowledge" && req.method === "GET") {

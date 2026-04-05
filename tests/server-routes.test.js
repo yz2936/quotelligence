@@ -155,6 +155,37 @@ test("complaints routes store and return complaint records", async () => {
   assert.equal(JSON.parse(detailResponse.body).complaint.complaintTitle, "Damaged shipment");
 });
 
+test("delete complaint route removes a stored complaint record", async () => {
+  __resetStoreForTests();
+
+  const formData = new FormData();
+  formData.append("complaint_title", "Damaged shipment");
+  formData.append("customer_name", "HeatEx");
+  formData.append("email_text", "Customer reported bent tubes on arrival.");
+  formData.append("language", "en");
+
+  const request = new Request("http://localhost/api/complaints", {
+    method: "POST",
+    body: formData,
+  });
+
+  const createResponse = await invokeRoute({
+    method: "POST",
+    url: "/api/complaints",
+    headers: Object.fromEntries(request.headers.entries()),
+    body: Buffer.from(await request.arrayBuffer()),
+  });
+
+  const complaintId = JSON.parse(createResponse.body).complaint.complaintId;
+  const deleteResponse = await invokeRoute({
+    method: "DELETE",
+    url: `/api/complaints/${complaintId}`,
+  });
+
+  assert.equal(deleteResponse.statusCode, 200);
+  assert.equal(JSON.parse(deleteResponse.body).deletedComplaintId, complaintId);
+});
+
 test("complaints route expands .eml uploads into full email context and extracted attachments", async () => {
   __resetStoreForTests();
 

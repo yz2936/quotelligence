@@ -33,6 +33,14 @@ export async function fetchComplaint(complaintId) {
   return handleJson(response);
 }
 
+export async function deleteComplaint(complaintId) {
+  const response = await apiFetch(`/api/complaints/${encodeURIComponent(complaintId)}`, {
+    method: "DELETE",
+  });
+
+  return handleJson(response);
+}
+
 export async function createComplaintRecord({ complaintTitle, customerName, emailText, files, language }) {
   const formData = new FormData();
 

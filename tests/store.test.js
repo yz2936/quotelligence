@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   __resetStoreForTests,
   deleteCase,
+  deleteComplaint,
   deleteKnowledgeFile,
   getCase,
   getComplaint,
@@ -64,6 +65,26 @@ test("store persists complaints alongside other file-backed data", async () => {
 
   const persisted = JSON.parse(fs.readFileSync(storePath, "utf8"));
   assert.equal(persisted.complaints.length, 1);
+});
+
+test("store deletes complaints from file-backed storage", async () => {
+  const storePath = path.join(os.tmpdir(), `quotelligence-store-test-${Date.now()}-delete-complaint.json`);
+  __resetStoreForTests(storePath);
+
+  await saveComplaint({
+    complaintId: "CMP-DELETE",
+    createdAt: "2026-04-04T12:00:00.000Z",
+    updatedAt: "2026-04-04T12:00:00.000Z",
+    complaintTitle: "Delete me",
+    customerName: "HeatEx",
+    summary: "Complaint to remove.",
+    attachments: [],
+  });
+
+  assert.equal(await deleteComplaint("CMP-DELETE"), true);
+  assert.equal(await deleteComplaint("CMP-404"), false);
+  assert.equal(await getComplaint("CMP-DELETE"), null);
+  assert.equal((await listComplaints()).length, 0);
 });
 
 test("store deletes cases and reports healthy file storage", async () => {
