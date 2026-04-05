@@ -118,13 +118,13 @@ export async function submitCheckpointDecision(caseId, checkpointId, payload) {
   return handleJson(response);
 }
 
-export async function queryWorkspace(question, language, source = "all") {
+export async function queryWorkspace(question, language, source = "all", context = null) {
   const response = await apiFetch("/api/workspace/query", {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
-    body: JSON.stringify({ question, language, source }),
+    body: JSON.stringify({ question, language, source, context }),
   });
 
   return handleJson(response);

@@ -436,6 +436,7 @@ export async function handleRequest(req, res) {
       const question = String(payload.question || "").trim();
       const language = String(payload.language || "en");
       const source = normalizeWorkspaceSource(payload.source);
+      const context = payload.context && typeof payload.context === "object" ? payload.context : null;
 
       if (!question) {
         return sendJson(res, 400, { error: "Question is required." });
@@ -452,6 +453,7 @@ export async function handleRequest(req, res) {
         complaints,
         language,
         source,
+        context,
       });
 
       return sendJson(res, 200, { answer });

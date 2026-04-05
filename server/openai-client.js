@@ -204,9 +204,10 @@ export async function answerWorkspaceQuestion({
   complaints = [],
   language = "en",
   source = "all",
+  context = null,
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
-  const trace = buildWorkspaceQueryTrace({ cases, knowledgeFiles, complaints, source, language });
+  const trace = buildWorkspaceQueryTrace({ cases, knowledgeFiles, complaints, source, language, context });
 
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is missing from the environment.");
@@ -228,6 +229,8 @@ export async function answerWorkspaceQuestion({
           "For Excel or workbook uploads, read the workbook tab names, columns, and sample rows before answering.",
           "If the question asks for tab-level insights, organize the answer by sheet.",
           "For customer complaints, use the complaint email context, complaint summaries, and attachment summaries as the source of truth.",
+          "If CURRENT DEAL CONTEXT is provided, treat it as the user-selected live record and prioritize it when the question is about follow-up, negotiation, buyer outreach, or next steps.",
+          "For follow-up questions, explain the likely blocker, suggest the next step, and draft buyer-ready messaging only from the supplied evidence.",
           "Use short sections with clear headings and concise bullet points when possible.",
           "Avoid repetition, filler, and long dense paragraphs.",
           "If data is insufficient, say so clearly.",
@@ -252,6 +255,9 @@ export async function answerWorkspaceQuestion({
                 "",
                 "CUSTOMER COMPLAINTS:",
                 buildComplaintLibraryContext(complaints),
+                "",
+                "CURRENT DEAL CONTEXT:",
+                buildWorkspaceSelectedContext(context),
               ].join("\n"),
             },
           ],
@@ -769,6 +775,14 @@ export function buildComplaintLibraryContext(complaints) {
     .join("\n");
 }
 
+export function buildWorkspaceSelectedContext(context) {
+  if (!context || typeof context !== "object") {
+    return "No current deal context was supplied.";
+  }
+
+  return JSON.stringify(context);
+}
+
 function describeWorkspaceSource(source) {
   if (source === "cases") {
     return "case data";
@@ -801,8 +815,25 @@ function describeWorkspaceSourceLabel(source, language) {
   return language === "zh" ? "全部工作区数据" : "all workspace data";
 }
 
-export function buildWorkspaceQueryTrace({ cases = [], knowledgeFiles = [], complaints = [], source = "all", language = "en" }) {
+export function buildWorkspaceQueryTrace({ cases = [], knowledgeFiles = [], complaints = [], source = "all", language = "en", context = null }) {
   const datasets = [];
+
+  if (context?.caseId) {
+    datasets.push({
+      type: "current_context",
+      label: language === "zh" ? "当前交易上下文" : "Current deal context",
+      count: 1,
+      items: [
+        [
+          context.caseId,
+          context.customerName || context.projectName || "",
+          context.routeLabel || "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      ],
+    });
+  }
 
   if (source === "all" || source === "cases") {
     datasets.push({
@@ -858,7 +889,7 @@ export function buildWorkspaceQueryTrace({ cases = [], knowledgeFiles = [], comp
               : "Covered cases, knowledge files, and complaint records."
             : language === "zh"
               ? `已限定为${describeWorkspaceSourceLabel(source, language)}。`
-              : `Scoped to ${describeWorkspaceSourceLabel(source, language)}.`,
+              : `Scoped to ${describeWorkspaceSourceLabel(source, language)}.${context?.caseId ? ` Active deal context: ${context.caseId}.` : ""}`,
       },
       {
         id: "load",

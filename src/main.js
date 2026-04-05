@@ -139,6 +139,7 @@ const state = {
     messages: [],
     width: Number.isFinite(storedAnalystWidth) && storedAnalystWidth >= ANALYST_MIN_WIDTH ? storedAnalystWidth : 388,
     pendingMessageId: "",
+    contextCaseId: null,
   },
   knowledge: {
     files: [],
@@ -198,6 +199,7 @@ function mount(options = {}) {
       ...state,
       ui: {
         animateRouteChange: Boolean(options.animateRouteChange),
+        activeRoute: window.location.hash || "#/intake",
       },
     },
     window.location.hash || "#/intake"
@@ -515,6 +517,26 @@ root.addEventListener("click", async (event) => {
     if (action === "submit-analyst-question") {
       event.preventDefault();
       await submitWorkspaceQuestion();
+      return;
+    }
+
+    if (action === "open-analyst-deal") {
+      event.preventDefault();
+      await openAnalystForDeal(target.dataset.caseId || "");
+      return;
+    }
+
+    if (action === "run-analyst-deal-prompt") {
+      event.preventDefault();
+      await runAnalystDealPrompt(target.dataset.promptKey || "");
+      return;
+    }
+
+    if (action === "clear-analyst-context") {
+      event.preventDefault();
+      state.analyst.contextCaseId = null;
+      mount();
+      focusAnalystInput();
       return;
     }
 
@@ -1984,12 +2006,14 @@ function syncUpdatedCase(caseRecord) {
   }
 }
 
-async function submitWorkspaceQuestion() {
-  const question = state.analyst.question.trim();
+async function submitWorkspaceQuestion(questionOverride = "") {
+  const question = String(questionOverride || state.analyst.question || "").trim();
 
   if (!question) {
     return;
   }
+
+  const analystContext = buildAnalystContextPayload();
 
   const pendingMessageId = `analyst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const questionMessage = {
@@ -2005,7 +2029,7 @@ async function submitWorkspaceQuestion() {
     meta: "",
     createdAt: new Date().toISOString(),
     pending: true,
-    trace: createPendingAnalystTrace(state.analyst.source, state.language),
+    trace: createPendingAnalystTrace(state.analyst.source, state.language, analystContext),
   };
 
   state.analyst.loading = true;
@@ -2015,17 +2039,17 @@ async function submitWorkspaceQuestion() {
   shouldAutoScrollAnalystThread = true;
   mount();
 
-  const progressPromise = runAnalystProgressSequence();
+  const progressPromise = runAnalystProgressSequence(analystContext);
 
   try {
-    const response = await queryWorkspace(question, state.language, state.analyst.source);
+    const response = await queryWorkspace(question, state.language, state.analyst.source, analystContext);
     state.analyst.messages = state.analyst.messages.map((message) =>
       message.id === pendingMessageId
         ? {
             ...message,
             pending: false,
             text: response.answer.answer,
-            meta: `${confidenceLabel(state.language, response.answer.confidence)} • ${response.answer.basis} • ${formatAnalystSourceLabel(state.analyst.source, state.language)}`,
+            meta: `${confidenceLabel(state.language, response.answer.confidence)} • ${response.answer.basis} • ${formatAnalystSourceLabel(state.analyst.source, state.language)}${analystContext?.caseId ? ` • ${analystContext.caseId}` : ""}`,
             trace: finalizeAnalystTrace(response.answer.trace, state.language),
           }
         : message
@@ -2059,15 +2083,15 @@ async function submitWorkspaceQuestion() {
   }
 }
 
-async function runAnalystProgressSequence() {
+async function runAnalystProgressSequence(context = null) {
   const steps = [
     {
       id: "scope",
       delay: 140,
       detail:
         state.language === "zh"
-          ? `当前问题已限定为${formatAnalystSourceLabel(state.analyst.source, state.language)}。`
-          : `Question scoped to ${formatAnalystSourceLabel(state.analyst.source, state.language)}.`,
+          ? `当前问题已限定为${formatAnalystSourceLabel(state.analyst.source, state.language)}${context?.caseId ? `，并绑定案例 ${context.caseId}。` : "。"}`
+          : `Question scoped to ${formatAnalystSourceLabel(state.analyst.source, state.language)}${context?.caseId ? ` with live deal ${context.caseId}.` : "."}`,
     },
     {
       id: "load",
@@ -2111,10 +2135,211 @@ async function runAnalystProgressSequence() {
   }
 }
 
-function createPendingAnalystTrace(source, language) {
+async function openAnalystForDeal(caseId) {
+  if (!caseId) {
+    return;
+  }
+
+  let caseRecord = findCaseRecord(caseId);
+  if (!hasAnalystCaseContext(caseRecord)) {
+    try {
+      caseRecord = await loadCaseDetail(caseId);
+    } catch {
+      caseRecord = findCaseRecord(caseId);
+    }
+  }
+
+  if (caseRecord) {
+    syncUpdatedCase(caseRecord);
+  }
+
+  state.analyst.contextCaseId = caseId;
+  state.analyst.open = true;
+  shouldAutoScrollAnalystThread = true;
+  mount();
+  focusAnalystInput();
+}
+
+async function runAnalystDealPrompt(promptKey) {
+  const contextCaseId = state.analyst.contextCaseId || state.quote.selectedCaseId || state.selectedCaseId || "";
+  if (!contextCaseId) {
+    return;
+  }
+
+  await openAnalystForDeal(contextCaseId);
+  state.analyst.source = "all";
+  const caseRecord = findCaseRecord(contextCaseId);
+  const question = buildAnalystDealPrompt(promptKey, caseRecord, state.language);
+  state.analyst.question = question;
+  mount();
+  await submitWorkspaceQuestion(question);
+}
+
+function buildAnalystContextPayload() {
+  const caseRecord = getActiveAnalystCase();
+  if (!caseRecord) {
+    return null;
+  }
+
+  const negotiationRecord = [...(state.outcomes.items || []), ...(state.outcomes.completedItems || [])].find(
+    (entry) => entry.caseId === caseRecord.caseId
+  );
+  const quoteSummary = caseRecord.quoteSummary || caseRecord.quoteEstimate || null;
+  const knowledgeComparison = caseRecord.knowledgeComparison || null;
+  const activeHistory =
+    (caseRecord.quoteHistory || []).find((entry) => entry.historyId === state.quote.activeHistoryId) ||
+    (caseRecord.quoteHistory || []).slice(-1)[0] ||
+    null;
+  const route = window.location.hash || "#/intake";
+
+  return {
+    type: "deal_follow_up",
+    route,
+    routeLabel: formatAnalystRouteLabel(route, state.language),
+    caseId: caseRecord.caseId,
+    customerName: caseRecord.customerName || "",
+    projectName: caseRecord.projectName || "",
+    status: caseRecord.status || "",
+    productItems: (caseRecord.productItems || []).map((item) => ({
+      label: item.label,
+      productType: item.productType,
+      materialGrade: item.materialGrade,
+      dimensions: item.dimensions,
+      quantity: item.quantity,
+    })),
+    quoteLifecycle: caseRecord.quoteLifecycle || null,
+    quoteSummary: quoteSummary
+      ? {
+          currency: quoteSummary.currency,
+          total: quoteSummary.total,
+          pricingStatus: quoteSummary.pricingStatus,
+          recommendedNextStep: quoteSummary.recommendedNextStep,
+          pricingStrategy: quoteSummary.pricingStrategy,
+          assumptions: quoteSummary.assumptions || [],
+          risks: quoteSummary.risks || [],
+        }
+      : null,
+    quoteHistory: activeHistory
+      ? {
+          createdAt: activeHistory.createdAt,
+          total: activeHistory.total,
+          status: activeHistory.status,
+        }
+      : null,
+    knowledgeComparison: knowledgeComparison
+      ? {
+          recommendedStatus: knowledgeComparison.recommendedStatus,
+          analysisSummary: knowledgeComparison.analysisSummary,
+          suggestedReviewAreas: knowledgeComparison.suggestedReviewAreas || [],
+        }
+      : null,
+    negotiationRecord: negotiationRecord
+      ? {
+          status: negotiationRecord.status,
+          outcome: negotiationRecord.outcome || "",
+          followUpDue: negotiationRecord.followUpDue || "",
+          daysOverdue: negotiationRecord.daysOverdue || 0,
+          finalPrice: negotiationRecord.finalPrice || null,
+          lossReason: negotiationRecord.lossReason || "",
+          competitorPrice: negotiationRecord.competitorPrice || null,
+          autoFollowUp: negotiationRecord.autoFollowUp || null,
+        }
+      : null,
+  };
+}
+
+function getActiveAnalystCase() {
+  const contextCaseId = state.analyst.contextCaseId;
+  if (contextCaseId) {
+    return findCaseRecord(contextCaseId);
+  }
+
+  if ((window.location.hash || "#/intake") === "#/quote" && state.quote.selectedCaseId) {
+    return findCaseRecord(state.quote.selectedCaseId);
+  }
+
+  if (state.selectedCaseId) {
+    return findCaseRecord(state.selectedCaseId);
+  }
+
+  return null;
+}
+
+function findCaseRecord(caseId) {
+  if (!caseId) {
+    return null;
+  }
+
+  return (
+    (state.selectedCase?.caseId === caseId ? state.selectedCase : null) ||
+    (state.quote.selectedCase?.caseId === caseId ? state.quote.selectedCase : null) ||
+    state.cases.find((entry) => entry.caseId === caseId) ||
+    null
+  );
+}
+
+function hasAnalystCaseContext(caseRecord) {
+  return Boolean(caseRecord?.productItems || caseRecord?.quoteLifecycle || caseRecord?.quoteSummary || caseRecord?.quoteEstimate);
+}
+
+function buildAnalystDealPrompt(promptKey, caseRecord, language) {
+  const customerName = caseRecord?.customerName || (language === "zh" ? "该客户" : "this buyer");
+  const prompts = {
+    follow_up_email:
+      language === "zh"
+        ? `基于当前交易上下文，为 ${customerName} 起草一封正式的跟进邮件。请说明当前状态、建议下一步，并给出可直接发送的邮件正文。`
+        : `Draft a formal buyer follow-up email for ${customerName}. Use the current deal context, explain the current status, recommend the next step, and provide send-ready email copy.`,
+    stalled_deal:
+      language === "zh"
+        ? `分析这个交易为什么可能停滞。请基于当前案例、报价、投诉或知识证据，列出最可能的阻碍因素、缺失信息和恢复推进的建议。`
+        : "Explain why this deal may be stalled. Use the current case, quote, complaint, and knowledge evidence to identify the most likely blockers, missing information, and how to restart momentum.",
+    next_step:
+      language === "zh"
+        ? `结合当前交易上下文，给出最合理的下一步跟进策略。请提供 3 个优先动作，并说明每个动作何时适合执行。`
+        : "Recommend the next best follow-up strategy for this deal. Give the top 3 actions, explain why each matters, and when each should be used.",
+  };
+
+  return prompts[promptKey] || prompts.next_step;
+}
+
+function formatAnalystRouteLabel(route, language) {
+  if (route === "#/outcomes") {
+    return t(language, "outcomesNav");
+  }
+
+  if (route === "#/quote") {
+    return t(language, "quoteBuilderNav");
+  }
+
+  if (route === "#/case") {
+    return t(language, "caseWorkspace");
+  }
+
+  return t(language, "workspaceAnalyst");
+}
+
+function focusAnalystInput() {
+  requestAnimationFrame(() => {
+    const input = document.getElementById("analyst-question");
+    if (input instanceof HTMLTextAreaElement) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+  });
+}
+
+function createPendingAnalystTrace(source, language, context = null) {
   return {
     source,
-    datasets: [],
+    datasets: context?.caseId
+      ? [
+          {
+            label: language === "zh" ? "当前交易上下文" : "Current deal context",
+            count: 1,
+            items: [[context.caseId, context.customerName || context.projectName || "", context.routeLabel || ""].filter(Boolean).join(" · ")],
+          },
+        ]
+      : [],
     steps: [
       {
         id: "scope",

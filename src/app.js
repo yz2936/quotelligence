@@ -667,6 +667,7 @@ function renderProductTable(productItems, language) {
 
 function renderAnalystWindow(state) {
   const language = state.language;
+  const analystContext = resolveAnalystContext(state);
   return `
     <aside class="analyst-window analyst-window--expanded" style="width:${Number(state.analyst.width || 388)}px">
       <div class="analyst-window__resize-handle" data-analyst-resize-handle></div>
@@ -697,6 +698,7 @@ function renderAnalystWindow(state) {
           : `<p class="muted">${t(language, "noAnalystQuestions")}</p>`}
       </div>
       <div class="analyst-composer">
+        ${analystContext ? renderAnalystContextPanel(analystContext, language) : ""}
         <div class="analyst-source-filter">
           <label class="form-label analyst-source-filter__label" for="analyst-source">${t(language, "analystSourceLabel")}</label>
           <select id="analyst-source" class="select-input analyst-source-filter__select">
@@ -713,6 +715,54 @@ function renderAnalystWindow(state) {
       </div>
     </aside>
   `;
+}
+
+function renderAnalystContextPanel(context, language) {
+  return `
+    <section class="analyst-context-panel">
+      <div class="analyst-context-panel__header">
+        <div>
+          <p class="eyebrow">${t(language, "analystDealContextTitle")}</p>
+          <h4>${escapeHtml(context.customerName || context.projectName || context.caseId || t(language, "noneLabel"))}</h4>
+          <p class="muted">${escapeHtml([context.caseId, context.routeLabel, context.projectName].filter(Boolean).join(" • "))}</p>
+        </div>
+        <button class="button button--secondary button--small" data-action="clear-analyst-context">${t(language, "clearAnalystContext")}</button>
+      </div>
+      <div class="analyst-context-panel__actions">
+        <button class="button button--secondary button--small" data-action="run-analyst-deal-prompt" data-prompt-key="follow_up_email">${t(language, "analystPromptFollowUpEmail")}</button>
+        <button class="button button--secondary button--small" data-action="run-analyst-deal-prompt" data-prompt-key="stalled_deal">${t(language, "analystPromptStalledDeal")}</button>
+        <button class="button button--secondary button--small" data-action="run-analyst-deal-prompt" data-prompt-key="next_step">${t(language, "analystPromptNextStep")}</button>
+      </div>
+    </section>
+  `;
+}
+
+function resolveAnalystContext(state) {
+  const contextCaseId = state.analyst?.contextCaseId;
+  if (!contextCaseId) {
+    return null;
+  }
+
+  const caseRecord =
+    (state.selectedCase?.caseId === contextCaseId ? state.selectedCase : null) ||
+    (state.quote?.selectedCase?.caseId === contextCaseId ? state.quote.selectedCase : null) ||
+    (state.cases || []).find((entry) => entry.caseId === contextCaseId) ||
+    null;
+  const negotiationRecord =
+    [...(state.outcomes?.items || []), ...(state.outcomes?.completedItems || [])].find((entry) => entry.caseId === contextCaseId) || null;
+  const activeRoute = state.ui?.activeRoute || "#/intake";
+
+  return {
+    caseId: contextCaseId,
+    customerName: caseRecord?.customerName || negotiationRecord?.customerName || "",
+    projectName: caseRecord?.projectName || negotiationRecord?.projectName || "",
+    routeLabel:
+      activeRoute === "#/outcomes"
+        ? t(state.language, "outcomesNav")
+        : activeRoute === "#/quote"
+          ? t(state.language, "quoteBuilderNav")
+          : t(state.language, "caseWorkspace"),
+  };
 }
 
 function renderAnalystMessageContent(text) {
@@ -1542,6 +1592,7 @@ function renderQuoteBuilder(caseData, emailDraft, quoteState, language, activeQu
             <button class="button button--secondary" data-action="download-quote-pdf">${t(language, "downloadQuotePdf")}</button>
             <button class="button button--secondary" data-action="generate-quote-email" ${isHistoricalView ? "disabled" : ""}>${quoteState.emailLoading ? t(language, "generatingEmail") : t(language, "generateQuoteEmail")}</button>
             <button class="button" data-action="send-quote-email" ${isHistoricalView ? "disabled" : ""}>${t(language, "sendQuoteEmail")}</button>
+            <button class="button button--secondary" data-action="open-analyst-deal" data-case-id="${caseData.caseId}" ${isHistoricalView ? "disabled" : ""}>${t(language, "askAnalystFollowUp")}</button>
           </div>
         </div>
         ${quoteState.sendFeedback ? `<p class="muted">${escapeHtml(quoteState.sendFeedback)}</p>` : ""}
@@ -2049,6 +2100,9 @@ function renderOutcomesPage(state) {
                           <button class="button ${result ? "" : "button--disabled"}" data-action="submit-outcome" data-case-id="${item.caseId}" ${result ? "" : "disabled"}>
                             ${t(language, "submitOutcome")}
                           </button>
+                          <button class="button button--secondary" data-action="open-analyst-deal" data-case-id="${item.caseId}">
+                            ${t(language, "askAnalystFollowUp")}
+                          </button>
                         </div>
                       </article>
                     `;
@@ -2096,6 +2150,9 @@ function renderOutcomesPage(state) {
                                       item.outcome === "no_response"
                                         ? `
                                           <div class="case-table__actions outcome-follow-up-actions">
+                                            <button class="button button--small button--secondary" data-action="open-analyst-deal" data-case-id="${item.caseId}">
+                                              ${t(language, "askAnalystFollowUp")}
+                                            </button>
                                             <input class="text-input text-input--table" type="date" value="${escapeAttribute(continueDate)}" data-outcome-field="followUpDue" data-case-id="${item.caseId}" />
                                             <button class="button button--small button--secondary" data-action="continue-follow-up" data-case-id="${item.caseId}">
                                               ${t(language, "continueFollowUp")}
