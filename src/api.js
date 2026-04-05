@@ -295,6 +295,18 @@ export async function logQuoteOutcome(payload) {
   return handleJson(response);
 }
 
+export async function prepareFollowUp(payload) {
+  const response = await apiFetch("/api/follow-ups/prepare", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return handleJson(response);
+}
+
 export async function sendFollowUp(payload) {
   const response = await apiFetch("/api/follow-ups/send", {
     method: "POST",

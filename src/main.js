@@ -20,6 +20,7 @@ import {
   fetchSystemStatus,
   logQuoteOutcome,
   markQuoteSent,
+  prepareFollowUp,
   scheduleFollowUp,
   sendFollowUp,
   createQuoteSnapshot,
@@ -414,6 +415,9 @@ root.addEventListener("click", async (event) => {
     if (action === "set-outcome-result") {
       event.preventDefault();
       setOutcomeFormValue(target.dataset.caseId, "result", target.dataset.outcomeResult || "");
+      if ((target.dataset.outcomeResult || "") === "negotiating") {
+        await ensureFollowUpComposerReady(target.dataset.caseId);
+      }
       mount();
       return;
     }
@@ -439,6 +443,30 @@ root.addEventListener("click", async (event) => {
     if (action === "schedule-follow-up") {
       event.preventDefault();
       await scheduleAutomaticFollowUp(target.dataset.caseId);
+      return;
+    }
+
+    if (action === "load-follow-up-draft") {
+      event.preventDefault();
+      await ensureFollowUpComposerReady(target.dataset.caseId, { forceReload: true });
+      return;
+    }
+
+    if (action === "use-analyst-follow-up") {
+      event.preventDefault();
+      await useAnalystFollowUpDraft(target.dataset.messageId, { caseId: target.dataset.caseId });
+      return;
+    }
+
+    if (action === "send-analyst-follow-up") {
+      event.preventDefault();
+      await sendAnalystFollowUpDraft(target.dataset.messageId, { caseId: target.dataset.caseId });
+      return;
+    }
+
+    if (action === "schedule-analyst-follow-up") {
+      event.preventDefault();
+      await scheduleAnalystFollowUpDraft(target.dataset.messageId, { caseId: target.dataset.caseId });
       return;
     }
 
@@ -1754,14 +1782,94 @@ function setOutcomeFormValue(caseId, field, value) {
   }
 
   state.outcomes.forms[caseId] = {
-    ...(state.outcomes.forms[caseId] || { result: "", finalPrice: "", lossReason: "", competitorPrice: "", followUpDue: "", autoSendAt: "" }),
+    ...createDefaultOutcomeForm(),
+    ...(state.outcomes.forms[caseId] || {}),
     [field]: value,
   };
 }
 
+function createDefaultOutcomeForm() {
+  return {
+    result: "",
+    finalPrice: "",
+    lossReason: "",
+    competitorPrice: "",
+    followUpDue: "",
+    autoSendAt: "",
+    draftTo: "",
+    draftCc: "",
+    draftSubject: "",
+    draftBody: "",
+    includeQuotePdf: true,
+  };
+}
+
+function getOutcomeForm(caseId) {
+  return {
+    ...createDefaultOutcomeForm(),
+    ...(state.outcomes.forms[caseId] || {}),
+  };
+}
+
+function resolveOutcomeSelection(caseId) {
+  const form = getOutcomeForm(caseId);
+  if (form.result) {
+    return form.result;
+  }
+
+  const activeItem = state.outcomes.items.find((entry) => entry.caseId === caseId);
+  if (activeItem?.status === "negotiating") {
+    return "negotiating";
+  }
+
+  const completedItem = state.outcomes.completedItems.find((entry) => entry.caseId === caseId);
+  return completedItem?.outcome || "";
+}
+
+function extractFollowUpDraftFromForm(caseId) {
+  const form = getOutcomeForm(caseId);
+  if (!String(form.draftSubject || "").trim() && !String(form.draftBody || "").trim()) {
+    return null;
+  }
+
+  return {
+    to: String(form.draftTo || "").trim(),
+    cc: String(form.draftCc || "").trim(),
+    subject: String(form.draftSubject || "").trim(),
+    body: String(form.draftBody || "").trim(),
+    includeQuotePdf: form.includeQuotePdf !== false,
+  };
+}
+
+function applyFollowUpDraftToForm(caseId, draft, extras = {}) {
+  if (!caseId || !draft) {
+    return;
+  }
+
+  state.outcomes.forms[caseId] = {
+    ...createDefaultOutcomeForm(),
+    ...(state.outcomes.forms[caseId] || {}),
+    result: "negotiating",
+    followUpDue:
+      extras.followUpDue ||
+      state.outcomes.forms[caseId]?.followUpDue ||
+      new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    autoSendAt:
+      extras.autoSendAt ||
+      state.outcomes.forms[caseId]?.autoSendAt ||
+      new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+    draftTo: draft.to || "",
+    draftCc: draft.cc || "",
+    draftSubject: draft.subject || "",
+    draftBody: draft.body || "",
+    includeQuotePdf: draft.includeQuotePdf !== false,
+  };
+}
+
 async function submitOutcome(caseId) {
-  const form = state.outcomes.forms[caseId] || {};
-  if (!form.result) {
+  const form = getOutcomeForm(caseId);
+  const selectedResult = resolveOutcomeSelection(caseId);
+  if (!selectedResult) {
     return;
   }
 
@@ -1770,7 +1878,7 @@ async function submitOutcome(caseId) {
 
   const payload = {
     caseId,
-    result: form.result,
+    result: selectedResult,
     finalPrice: form.finalPrice,
     lossReason: form.lossReason,
     competitorPrice: form.competitorPrice,
@@ -1780,19 +1888,20 @@ async function submitOutcome(caseId) {
 
   const response = await logQuoteOutcome(payload);
   syncUpdatedCase(response.case);
-  delete state.outcomes.forms[caseId];
-
-  if (window.location.hash === "#/outcomes") {
-    const outcomesResponse = await fetchPendingOutcomes();
-    state.outcomes.items = outcomesResponse.items;
-    state.outcomes.completedItems = Array.isArray(outcomesResponse.completedItems) ? outcomesResponse.completedItems : [];
-    state.outcomes.summary = outcomesResponse.summary || null;
+  if (selectedResult === "negotiating") {
+    state.outcomes.forms[caseId] = {
+      ...form,
+      result: "negotiating",
+      followUpDue:
+        form.followUpDue ||
+        response.case.quoteLifecycle?.followUpDue ||
+        new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    };
+  } else {
+    delete state.outcomes.forms[caseId];
   }
 
-  if (window.location.hash === "#/dashboard") {
-    const statsResponse = await fetchDashboardStats();
-    state.dashboard.stats = statsResponse.stats;
-  }
+  await refreshNegotiationAndDashboard();
 
   mount();
 }
@@ -1825,28 +1934,19 @@ async function continueFollowUp(caseId) {
     followUpDue,
   };
 
-  if (window.location.hash === "#/outcomes") {
-    const outcomesResponse = await fetchPendingOutcomes();
-    state.outcomes.items = outcomesResponse.items;
-    state.outcomes.completedItems = Array.isArray(outcomesResponse.completedItems) ? outcomesResponse.completedItems : [];
-    state.outcomes.summary = outcomesResponse.summary || null;
-  }
-
-  if (window.location.hash === "#/dashboard") {
-    const statsResponse = await fetchDashboardStats();
-    state.dashboard.stats = statsResponse.stats;
-  }
+  await refreshNegotiationAndDashboard();
 
   mount();
 }
 
-async function sendFollowUpNow(caseId) {
+async function sendFollowUpNow(caseId, draftOverride = null) {
   if (!caseId) {
     return;
   }
 
-  const form = state.outcomes.forms[caseId] || {};
+  const form = getOutcomeForm(caseId);
   const followUpDue = form.followUpDue || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const draft = draftOverride || extractFollowUpDraftFromForm(caseId) || (await loadStandardFollowUpDraft(caseId));
 
   state.error = "";
   mount();
@@ -1856,10 +1956,52 @@ async function sendFollowUpNow(caseId) {
     language: state.language,
     followUpDue,
     actor: state.auth.user?.email || "user",
+    draft,
+    caseSnapshot: findCaseRecord(caseId),
   });
 
   syncUpdatedCase(response.case);
+  if (response.draft) {
+    applyFollowUpDraftToForm(caseId, response.draft, { followUpDue });
+  }
 
+  await refreshNegotiationAndDashboard();
+
+  mount();
+}
+
+async function scheduleAutomaticFollowUp(caseId, draftOverride = null) {
+  if (!caseId) {
+    return;
+  }
+
+  const form = getOutcomeForm(caseId);
+  const autoSendAt = form.autoSendAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
+  const draft = draftOverride || extractFollowUpDraftFromForm(caseId) || (await loadStandardFollowUpDraft(caseId));
+
+  state.error = "";
+  mount();
+
+  const response = await scheduleFollowUp({
+    caseId,
+    language: state.language,
+    sendAt: autoSendAt,
+    actor: state.auth.user?.email || "user",
+    draft,
+    caseSnapshot: findCaseRecord(caseId),
+  });
+
+  syncUpdatedCase(response.case);
+  if (response.draft) {
+    applyFollowUpDraftToForm(caseId, response.draft, { autoSendAt });
+  }
+
+  await refreshNegotiationAndDashboard();
+
+  mount();
+}
+
+async function refreshNegotiationAndDashboard() {
   if (window.location.hash === "#/outcomes") {
     const outcomesResponse = await fetchPendingOutcomes();
     state.outcomes.items = outcomesResponse.items;
@@ -1871,38 +2013,96 @@ async function sendFollowUpNow(caseId) {
     const statsResponse = await fetchDashboardStats();
     state.dashboard.stats = statsResponse.stats;
   }
-
-  mount();
 }
 
-async function scheduleAutomaticFollowUp(caseId) {
+async function loadStandardFollowUpDraft(caseId) {
+  const response = await prepareFollowUp({
+    caseId,
+    language: state.language,
+    caseSnapshot: findCaseRecord(caseId),
+  });
+  return response.draft;
+}
+
+async function ensureFollowUpComposerReady(caseId, { forceReload = false } = {}) {
   if (!caseId) {
-    return;
+    return null;
   }
 
-  const form = state.outcomes.forms[caseId] || {};
-  const autoSendAt = form.autoSendAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
+  const form = getOutcomeForm(caseId);
+  const hasDraft = Boolean(String(form.draftSubject || "").trim() || String(form.draftBody || "").trim());
+
+  state.outcomes.forms[caseId] = {
+    ...form,
+    result: "negotiating",
+    followUpDue: form.followUpDue || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    autoSendAt: form.autoSendAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+  };
+
+  if (!forceReload && hasDraft) {
+    return extractFollowUpDraftFromForm(caseId);
+  }
 
   state.error = "";
   mount();
+  const draft = await loadStandardFollowUpDraft(caseId);
+  applyFollowUpDraftToForm(caseId, draft);
+  mount();
+  return draft;
+}
 
-  const response = await scheduleFollowUp({
-    caseId,
-    language: state.language,
-    sendAt: autoSendAt,
-    actor: state.auth.user?.email || "user",
-  });
+function findAnalystMessage(messageId) {
+  return state.analyst.messages.find((entry) => entry.id === messageId) || null;
+}
 
-  syncUpdatedCase(response.case);
-
-  if (window.location.hash === "#/outcomes") {
-    const outcomesResponse = await fetchPendingOutcomes();
-    state.outcomes.items = outcomesResponse.items;
-    state.outcomes.completedItems = Array.isArray(outcomesResponse.completedItems) ? outcomesResponse.completedItems : [];
-    state.outcomes.summary = outcomesResponse.summary || null;
+async function useAnalystFollowUpDraft(messageId, { caseId } = {}) {
+  const message = findAnalystMessage(messageId);
+  const targetCaseId = caseId || message?.contextCaseId || state.analyst.contextCaseId || "";
+  if (!message || !targetCaseId) {
+    return;
   }
 
+  const standardDraft = await ensureFollowUpComposerReady(targetCaseId);
+  applyFollowUpDraftToForm(targetCaseId, {
+    ...(standardDraft || {}),
+    body: message.text || standardDraft?.body || "",
+  });
+  state.analyst.contextCaseId = targetCaseId;
+  window.location.hash = "#/outcomes";
+  shouldAutoScrollAnalystThread = true;
   mount();
+}
+
+async function sendAnalystFollowUpDraft(messageId, { caseId } = {}) {
+  const message = findAnalystMessage(messageId);
+  const targetCaseId = caseId || message?.contextCaseId || state.analyst.contextCaseId || "";
+  if (!message || !targetCaseId) {
+    return;
+  }
+
+  const standardDraft = await ensureFollowUpComposerReady(targetCaseId);
+  const draft = {
+    ...(standardDraft || {}),
+    body: message.text || standardDraft?.body || "",
+  };
+  applyFollowUpDraftToForm(targetCaseId, draft);
+  await sendFollowUpNow(targetCaseId, draft);
+}
+
+async function scheduleAnalystFollowUpDraft(messageId, { caseId } = {}) {
+  const message = findAnalystMessage(messageId);
+  const targetCaseId = caseId || message?.contextCaseId || state.analyst.contextCaseId || "";
+  if (!message || !targetCaseId) {
+    return;
+  }
+
+  const standardDraft = await ensureFollowUpComposerReady(targetCaseId);
+  const draft = {
+    ...(standardDraft || {}),
+    body: message.text || standardDraft?.body || "",
+  };
+  applyFollowUpDraftToForm(targetCaseId, draft);
+  await scheduleAutomaticFollowUp(targetCaseId, draft);
 }
 
 async function sendQuoteEmail() {
@@ -2006,7 +2206,7 @@ function syncUpdatedCase(caseRecord) {
   }
 }
 
-async function submitWorkspaceQuestion(questionOverride = "") {
+async function submitWorkspaceQuestion(questionOverride = "", options = {}) {
   const question = String(questionOverride || state.analyst.question || "").trim();
 
   if (!question) {
@@ -2021,6 +2221,7 @@ async function submitWorkspaceQuestion(questionOverride = "") {
     role: "user",
     text: question,
     createdAt: new Date().toISOString(),
+    contextCaseId: analystContext?.caseId || state.analyst.contextCaseId || "",
   };
   const pendingAssistantMessage = {
     id: pendingMessageId,
@@ -2029,6 +2230,8 @@ async function submitWorkspaceQuestion(questionOverride = "") {
     meta: "",
     createdAt: new Date().toISOString(),
     pending: true,
+    contextCaseId: analystContext?.caseId || state.analyst.contextCaseId || "",
+    followUpCandidate: Boolean(options.followUpCandidate),
     trace: createPendingAnalystTrace(state.analyst.source, state.language, analystContext),
   };
 
@@ -2049,6 +2252,8 @@ async function submitWorkspaceQuestion(questionOverride = "") {
             ...message,
             pending: false,
             text: response.answer.answer,
+            contextCaseId: analystContext?.caseId || state.analyst.contextCaseId || "",
+            followUpCandidate: Boolean(options.followUpCandidate),
             meta: `${confidenceLabel(state.language, response.answer.confidence)} • ${response.answer.basis} • ${formatAnalystSourceLabel(state.analyst.source, state.language)}${analystContext?.caseId ? ` • ${analystContext.caseId}` : ""}`,
             trace: finalizeAnalystTrace(response.answer.trace, state.language),
           }
@@ -2172,7 +2377,7 @@ async function runAnalystDealPrompt(promptKey) {
   const question = buildAnalystDealPrompt(promptKey, caseRecord, state.language);
   state.analyst.question = question;
   mount();
-  await submitWorkspaceQuestion(question);
+  await submitWorkspaceQuestion(question, { followUpCandidate: promptKey === "follow_up_email" });
 }
 
 function buildAnalystContextPayload() {

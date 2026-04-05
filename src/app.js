@@ -691,6 +691,7 @@ function renderAnalystWindow(state) {
                     ${renderAnalystMessageContent(message.text)}
                     ${message.trace ? renderAnalystTrace(message.trace, language, Boolean(message.pending)) : ""}
                     ${message.meta ? `<p class="muted analyst-message__meta">${message.meta}</p>` : ""}
+                    ${renderAnalystMessageActions(message, language)}
                   </article>
                 `
               )
@@ -714,6 +715,26 @@ function renderAnalystWindow(state) {
         </div>
       </div>
     </aside>
+  `;
+}
+
+function renderAnalystMessageActions(message, language) {
+  if (message.role !== "assistant" || message.pending || !message.followUpCandidate || !message.contextCaseId) {
+    return "";
+  }
+
+  return `
+    <div class="analyst-message__actions">
+      <button class="button button--secondary button--small" data-action="use-analyst-follow-up" data-message-id="${message.id}" data-case-id="${message.contextCaseId}">
+        ${t(language, "useAnalystDraft")}
+      </button>
+      <button class="button button--secondary button--small" data-action="send-analyst-follow-up" data-message-id="${message.id}" data-case-id="${message.contextCaseId}">
+        ${t(language, "sendAnalystDraft")}
+      </button>
+      <button class="button button--small" data-action="schedule-analyst-follow-up" data-message-id="${message.id}" data-case-id="${message.contextCaseId}">
+        ${t(language, "scheduleAnalystDraft")}
+      </button>
+    </div>
   `;
 }
 
@@ -2055,7 +2076,20 @@ function renderOutcomesPage(state) {
             items.length
               ? items
                   .map((item) => {
-                    const form = state.outcomes.forms[item.caseId] || {};
+                    const form = {
+                      result: item.status === "negotiating" ? "negotiating" : "",
+                      finalPrice: "",
+                      lossReason: "",
+                      competitorPrice: "",
+                      followUpDue: "",
+                      autoSendAt: "",
+                      draftTo: "",
+                      draftCc: "",
+                      draftSubject: "",
+                      draftBody: "",
+                      includeQuotePdf: true,
+                      ...(state.outcomes.forms[item.caseId] || {}),
+                    };
                     const result = form.result || "";
                     return `
                       <article class="summary-card outcome-card">
@@ -2096,9 +2130,10 @@ function renderOutcomesPage(state) {
                             `
                             : ""
                         }
+                        ${result === "negotiating" ? renderNegotiationFollowUpComposer(item, form, state, language) : ""}
                         <div class="intake-actions">
                           <button class="button ${result ? "" : "button--disabled"}" data-action="submit-outcome" data-case-id="${item.caseId}" ${result ? "" : "disabled"}>
-                            ${t(language, "submitOutcome")}
+                            ${result === "negotiating" ? t(language, "saveNegotiationStatus") : t(language, "submitOutcome")}
                           </button>
                           <button class="button button--secondary" data-action="open-analyst-deal" data-case-id="${item.caseId}">
                             ${t(language, "askAnalystFollowUp")}
@@ -2194,6 +2229,60 @@ function renderOutcomesPage(state) {
       </div>
     `,
   };
+}
+
+function renderNegotiationFollowUpComposer(item, form, state, language) {
+  return `
+    <section class="negotiation-composer">
+      <div class="negotiation-composer__header">
+        <div>
+          <p class="eyebrow">${t(language, "negotiationFollowUpTitle")}</p>
+          <h4>${t(language, "negotiationFollowUpDescription")}</h4>
+        </div>
+      </div>
+      <div class="negotiation-composer__step">
+        <p class="negotiation-composer__step-label">${t(language, "negotiationStepOne")}</p>
+        <label class="form-label">${t(language, "followUpDueLabel")}</label>
+        <input class="text-input" type="date" value="${escapeAttribute(form.followUpDue || String(item.followUpDue || "").slice(0, 10))}" data-outcome-field="followUpDue" data-case-id="${item.caseId}" />
+      </div>
+      <div class="negotiation-composer__step">
+        <p class="negotiation-composer__step-label">${t(language, "negotiationStepTwo")}</p>
+        <div class="case-table__actions">
+          <button class="button button--secondary button--small ${state.system.emailDelivery?.configured ? "" : "button--disabled"}" data-action="load-follow-up-draft" data-case-id="${item.caseId}" ${state.system.emailDelivery?.configured ? "" : "disabled"}>
+            ${t(language, "loadFollowUpDraft")}
+          </button>
+          <button class="button button--secondary button--small" data-action="open-analyst-deal" data-case-id="${item.caseId}">
+            ${t(language, "askAnalystFollowUp")}
+          </button>
+        </div>
+      </div>
+      <div class="negotiation-composer__step">
+        <p class="negotiation-composer__step-label">${t(language, "negotiationStepThree")}</p>
+        <label class="form-label">${t(language, "emailToLabel")}</label>
+        <input class="text-input" type="email" value="${escapeAttribute(form.draftTo || "")}" data-outcome-field="draftTo" data-case-id="${item.caseId}" />
+        <label class="form-label">${t(language, "emailCcLabel")}</label>
+        <input class="text-input" type="text" value="${escapeAttribute(form.draftCc || "")}" data-outcome-field="draftCc" data-case-id="${item.caseId}" />
+        <label class="form-label">${t(language, "emailSubjectLabel")}</label>
+        <input class="text-input" type="text" value="${escapeAttribute(form.draftSubject || "")}" data-outcome-field="draftSubject" data-case-id="${item.caseId}" />
+        <label class="form-label">${t(language, "emailBodyLabel")}</label>
+        <textarea class="text-area text-area--compact" data-outcome-field="draftBody" data-case-id="${item.caseId}">${escapeHtml(form.draftBody || "")}</textarea>
+      </div>
+      <div class="negotiation-composer__step">
+        <p class="negotiation-composer__step-label">${t(language, "negotiationStepFour")}</p>
+        <div class="case-table__actions">
+          <button class="button button--secondary button--small ${state.system.emailDelivery?.configured ? "" : "button--disabled"}" data-action="send-follow-up-now" data-case-id="${item.caseId}" ${state.system.emailDelivery?.configured ? "" : "disabled"}>
+            ${t(language, "sendFollowUpNow")}
+          </button>
+          <input class="text-input text-input--table" type="datetime-local" value="${escapeAttribute((form.autoSendAt || "").slice(0, 16))}" data-outcome-field="autoSendAt" data-case-id="${item.caseId}" />
+          <button class="button button--small ${state.system.emailDelivery?.configured ? "" : "button--disabled"}" data-action="schedule-follow-up" data-case-id="${item.caseId}" ${state.system.emailDelivery?.configured ? "" : "disabled"}>
+            ${t(language, "scheduleAutoFollowUp")}
+          </button>
+        </div>
+        ${item.autoFollowUp?.enabled ? `<p class="case-table__subtext">${escapeHtml(t(language, "autoFollowUpQueued"))}: ${escapeHtml(String(item.autoFollowUp.sendAt || "").slice(0, 16).replace("T", " "))}</p>` : ""}
+        ${!state.system.emailDelivery?.configured ? `<p class="case-table__subtext">${escapeHtml(t(language, "emailDeliveryNotConfigured"))}</p>` : ""}
+      </div>
+    </section>
+  `;
 }
 
 function formatNegotiationOutcomeDetails(item, language) {
