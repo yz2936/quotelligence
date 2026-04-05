@@ -1374,3 +1374,214 @@ function normalizeProductItems(items) {
     quantity: normalizeText(item.quantity),
   }));
 }
+
+// ─── Feature 4: Compliance Traceability ──────────────────────────────────────
+
+const COMPLIANCE_MAP_SCHEMA = {
+  type: "object",
+  properties: {
+    compliance_map: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          line_item_index:    { type: "number" },
+          product_label:      { type: "string" },
+          requirement_type:   { type: "string", enum: ["inspection", "documentation"] },
+          requirement:        { type: "string" },
+          status:             { type: "string", enum: ["covered", "partial", "gap"] },
+          covering_files:     { type: "array", items: { type: "string" } },
+          gap:                { type: "string" },
+          severity:           { type: "string", enum: ["critical", "minor"] },
+        },
+        required: ["line_item_index", "product_label", "requirement_type", "requirement", "status", "covering_files", "gap", "severity"],
+        additionalProperties: false,
+      },
+    },
+    summary: { type: "string" },
+  },
+  required: ["compliance_map", "summary"],
+  additionalProperties: false,
+};
+
+/**
+ * Feature 4: Map each line-item compliance requirement to uploaded certificate/MTR files.
+ */
+export async function mapComplianceRequirements({ caseRecord, knowledgeFiles, language = "en" }) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is missing from the environment.");
+
+  const COMPLIANCE_CATEGORIES = ["Certificate", "MTC / MTR", "Compliance Document", "Inspection Template"];
+  const complianceFiles = knowledgeFiles.filter((f) => COMPLIANCE_CATEGORIES.includes(f.category));
+
+  const requirementLines = (caseRecord.productItems || []).flatMap((item, idx) => {
+    const lines = [];
+    if (item.inspectionRequirements && !/not clearly stated/i.test(item.inspectionRequirements)) {
+      lines.push(`[Line ${idx}][${escapeForJson(item.label || `Product ${idx + 1}`)}][inspection] ${item.inspectionRequirements}`);
+    }
+    if (item.documentationRequirements && !/not clearly stated/i.test(item.documentationRequirements)) {
+      lines.push(`[Line ${idx}][${escapeForJson(item.label || `Product ${idx + 1}`)}][documentation] ${item.documentationRequirements}`);
+    }
+    return lines;
+  });
+
+  const filesContext = complianceFiles
+    .map((f) => `FILE: ${f.name} (${f.category})\n${String(f.extractedText || f.summary || "").slice(0, 4000)}`)
+    .join("\n\n---\n\n");
+
+  const response = await fetch(API_URL, {
+    method: "POST",
+    headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: MODEL,
+      instructions: [
+        "You are a compliance traceability reviewer for industrial pipe and materials specifications.",
+        "For each RFQ requirement listed, determine whether the uploaded compliance files cover it, partially cover it, or leave a gap.",
+        "'covered' means the file explicitly contains the certificate, MTC, or inspection procedure for that requirement.",
+        "'partial' means the file partially addresses it but there are conditions or limits.",
+        "'gap' means no uploaded file addresses this requirement.",
+        "severity: 'critical' if the gap would block the quotation (e.g. missing EN 10204 3.1 MTC when explicitly required); 'minor' otherwise.",
+        language === "zh" ? "Write the gap and summary fields in Simplified Chinese." : "Write all narrative fields in English.",
+        "Return valid JSON matching the schema exactly.",
+      ].join(" "),
+      input: [{
+        role: "user",
+        content: [{
+          type: "input_text",
+          text: [
+            "RFQ COMPLIANCE REQUIREMENTS:",
+            requirementLines.join("\n") || "None stated.",
+            "",
+            "UPLOADED COMPLIANCE FILES:",
+            filesContext || "No compliance files uploaded.",
+          ].join("\n"),
+        }],
+      }],
+      text: { format: { type: "json_schema", name: "compliance_map", strict: true, schema: COMPLIANCE_MAP_SCHEMA } },
+    }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error?.message || "OpenAI compliance mapping failed.");
+  const outputText = payload.output_text || extractOutputText(payload);
+  if (!outputText) throw new Error("OpenAI compliance map returned no output.");
+
+  const parsed = JSON.parse(outputText);
+  return {
+    complianceMap: (parsed.compliance_map || []).map((entry) => ({
+      mapId: `cm-${entry.line_item_index + 1}-${entry.requirement_type.slice(0, 1)}-${Date.now()}`,
+      lineItemIndex: entry.line_item_index,
+      productLabel: entry.product_label,
+      requirementType: entry.requirement_type,
+      requirement: entry.requirement,
+      status: entry.status,
+      coveringFiles: entry.covering_files || [],
+      gap: entry.gap || "",
+      severity: entry.severity,
+    })),
+    summary: parsed.summary || "",
+  };
+}
+
+function escapeForJson(str) {
+  return String(str || "").replace(/[\[\]]/g, "");
+}
+
+// ─── Feature 5: Smart Clarification Questions ─────────────────────────────────
+
+const CLARIFICATION_QUESTIONS_SCHEMA = {
+  type: "object",
+  properties: {
+    questions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          question_id:  { type: "string" },
+          priority:     { type: "number" },
+          category:     { type: "string", enum: ["Technical Spec", "Commercial Terms", "Compliance", "Logistics"] },
+          question:     { type: "string" },
+          reasoning:    { type: "string" },
+          blocks_quote: { type: "boolean" },
+          source_type:  { type: "string", enum: ["spec_conflict", "missing_field", "risk_factor", "compliance_gap", "delivery_mismatch", "historical_pattern"] },
+        },
+        required: ["question_id", "priority", "category", "question", "reasoning", "blocks_quote", "source_type"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["questions"],
+  additionalProperties: false,
+};
+
+/**
+ * Feature 5: Generate prioritized, categorized clarification questions.
+ */
+export async function generatePrioritizedClarifications({ caseRecord, specFlags = [], complianceGaps = [], riskFactors = [], language = "en" }) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is missing from the environment.");
+
+  const missingFields = caseRecord.missingInfo?.missingFields || [];
+  const ambiguous     = caseRecord.missingInfo?.ambiguousRequirements || [];
+  const lowConf       = caseRecord.missingInfo?.lowConfidenceItems || [];
+  const delivery      = (caseRecord.productItems || [])
+    .filter((item) => item.deliveryRisk?.riskLevel === "High")
+    .map((item) => `${item.label || "Item"}: ${item.deliveryRisk?.recommendation || "delivery commitment mismatch"}`);
+
+  const contextLines = [
+    missingFields.length  ? `MISSING FIELDS:\n${missingFields.join("\n")}` : "",
+    ambiguous.length      ? `AMBIGUOUS REQUIREMENTS:\n${ambiguous.join("\n")}` : "",
+    lowConf.length        ? `LOW CONFIDENCE ITEMS:\n${lowConf.join("\n")}` : "",
+    specFlags.length      ? `SPEC CONFLICTS:\n${specFlags.join("\n")}` : "",
+    complianceGaps.length ? `COMPLIANCE GAPS:\n${complianceGaps.join("\n")}` : "",
+    riskFactors.length    ? `RISK FACTORS:\n${riskFactors.join("\n")}` : "",
+    delivery.length       ? `DELIVERY MISMATCHES:\n${delivery.join("\n")}` : "",
+  ].filter(Boolean).join("\n\n");
+
+  const response = await fetch(API_URL, {
+    method: "POST",
+    headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: MODEL,
+      instructions: [
+        "You are a senior quoting engineer generating targeted clarification questions for a B2B RFQ.",
+        "Generate 5-10 questions prioritized by impact on price, delivery risk, or compliance.",
+        "Priority 1 = must ask before quoting (blocks_quote: true). Priority 2 = important but not a hard blocker. Priority 3 = nice to have.",
+        "Assign the most precise category: Technical Spec, Commercial Terms, Compliance, or Logistics.",
+        "Each question must be concrete and address a specific gap — not generic.",
+        "reasoning should explain why this question matters for pricing or risk.",
+        language === "zh" ? "Write question and reasoning in Simplified Chinese." : "Write question and reasoning in English.",
+        "Return valid JSON matching the schema exactly.",
+      ].join(" "),
+      input: [{
+        role: "user",
+        content: [{
+          type: "input_text",
+          text: [
+            `CUSTOMER: ${caseRecord.customerName || "Unknown"}`,
+            `PRODUCT SUMMARY: ${caseRecord.aiSummary?.whatCustomerNeeds || "Not available"}`,
+            "",
+            contextLines || "No specific issues identified.",
+          ].join("\n"),
+        }],
+      }],
+      text: { format: { type: "json_schema", name: "clarification_questions", strict: true, schema: CLARIFICATION_QUESTIONS_SCHEMA } },
+    }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error?.message || "OpenAI clarification generation failed.");
+  const outputText = payload.output_text || extractOutputText(payload);
+  if (!outputText) throw new Error("OpenAI clarification questions returned no output.");
+
+  const parsed = JSON.parse(outputText);
+  return (parsed.questions || []).map((q, idx) => ({
+    questionId:  q.question_id || `sq-${idx + 1}`,
+    priority:    q.priority,
+    category:    q.category,
+    question:    q.question,
+    reasoning:   q.reasoning,
+    blocksQuote: q.blocks_quote,
+    sourceType:  q.source_type,
+  }));
+}

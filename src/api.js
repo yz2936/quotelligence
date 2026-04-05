@@ -267,6 +267,36 @@ export async function fetchDashboardStats() {
   return handleJson(response);
 }
 
+// Feature 4: Compliance Traceability Check
+export async function runComplianceCheck(caseId, language, caseSnapshot = null) {
+  const response = await apiFetch(`/api/cases/${encodeURIComponent(caseId)}/compliance-check`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ caseId, language, caseSnapshot }),
+  });
+  return handleJson(response);
+}
+
+// Feature 2: Supplier Matrix
+export async function fetchSupplierMatrix(caseId, language, caseSnapshot = null) {
+  const response = await apiFetch("/api/quote/supplier-matrix", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ caseId, language, caseSnapshot }),
+  });
+  return handleJson(response);
+}
+
+// Feature 5: Refresh Clarification Questions
+export async function refreshClarificationQuestions(caseId, language, caseSnapshot = null) {
+  const response = await apiFetch(`/api/cases/${encodeURIComponent(caseId)}/refresh-questions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ caseId, language, caseSnapshot }),
+  });
+  return handleJson(response);
+}
+
 async function apiFetch(input, init = {}) {
   const token = await getAccessToken();
   const headers = new Headers(init.headers || {});

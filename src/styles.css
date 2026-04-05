@@ -1122,6 +1122,22 @@ p { margin: 0; }
 
 .case-table__row:last-child td { border-bottom: none; }
 
+/* ── Feature 1: Spec Flag Pills ─────────────────────────────────────────────── */
+.spec-flag {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: default;
+}
+.spec-flag--conflict  { background: #fde8e8; color: #c0392b; border: 1px solid #f5b7b1; }
+.spec-flag--warning   { background: #fef9e7; color: #b7770d; border: 1px solid #f9d66e; }
+.spec-flag--derived   { background: #e8f4fd; color: #1a6fa5; border: 1px solid #aed6f1; }
+.spec-flag--assumed   { background: #f4f4f4; color: #666;    border: 1px solid #ddd; }
+
 .case-table__row {
   transition: background var(--t-fast);
 }

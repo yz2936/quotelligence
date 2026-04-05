@@ -9,6 +9,7 @@ import {
   generateKnowledgeFileMetadata,
   generateKnowledgeFileSummary,
   generateQuoteEstimateFromKnowledge,
+  mapComplianceRequirements,
 } from "./openai-client.js";
 
 const KNOWLEDGE_CATEGORIES = [
@@ -226,6 +227,96 @@ export function deriveKnowledgeStatus(comparison) {
   }
 
   return "Ready to Quote";
+}
+
+/**
+ * Feature 4: Build a per-requirement compliance traceability map.
+ * Maps each product item's inspection/documentation requirements to uploaded certificate/MTR files.
+ */
+export async function buildComplianceTraceability({ caseRecord, knowledgeFiles, language = "en" }) {
+  const COMPLIANCE_CATEGORIES = ["Certificate", "MTC / MTR", "Compliance Document", "Inspection Template"];
+  const complianceFiles = knowledgeFiles.filter((f) => COMPLIANCE_CATEGORIES.includes(f.category));
+
+  const allRequirements = (caseRecord.productItems || []).flatMap((item) => [
+    item.inspectionRequirements,
+    item.documentationRequirements,
+  ]).filter((r) => r && !/not clearly stated/i.test(r));
+
+  if (!allRequirements.length) {
+    return {
+      complianceMap: [],
+      summary: language === "zh" ? "未发现合规要求。" : "No compliance requirements stated in the RFQ.",
+      gapCount: 0,
+      coveredCount: 0,
+    };
+  }
+
+  if (!complianceFiles.length) {
+    // No compliance files uploaded — mark everything as gap
+    const fallbackMap = (caseRecord.productItems || []).flatMap((item, idx) => {
+      const entries = [];
+      if (item.inspectionRequirements && !/not clearly stated/i.test(item.inspectionRequirements)) {
+        entries.push({
+          mapId: `cm-${idx}-i-${Date.now()}`,
+          lineItemIndex: idx,
+          productLabel: item.label || `Product ${idx + 1}`,
+          requirementType: "inspection",
+          requirement: item.inspectionRequirements,
+          status: "gap",
+          coveringFiles: [],
+          gap: "No compliance documents have been uploaded.",
+          severity: "minor",
+        });
+      }
+      if (item.documentationRequirements && !/not clearly stated/i.test(item.documentationRequirements)) {
+        entries.push({
+          mapId: `cm-${idx}-d-${Date.now()}`,
+          lineItemIndex: idx,
+          productLabel: item.label || `Product ${idx + 1}`,
+          requirementType: "documentation",
+          requirement: item.documentationRequirements,
+          status: "gap",
+          coveringFiles: [],
+          gap: "No compliance documents have been uploaded.",
+          severity: "minor",
+        });
+      }
+      return entries;
+    });
+    return {
+      complianceMap: fallbackMap,
+      summary: language === "zh" ? "未上传合规文件，无法验证覆盖情况。" : "No compliance files uploaded — cannot verify coverage.",
+      gapCount: fallbackMap.length,
+      coveredCount: 0,
+    };
+  }
+
+  try {
+    const result = await mapComplianceRequirements({ caseRecord, knowledgeFiles, language });
+    const gapCount     = result.complianceMap.filter((m) => m.status === "gap").length;
+    const coveredCount = result.complianceMap.filter((m) => m.status === "covered").length;
+    return { ...result, gapCount, coveredCount };
+  } catch (error) {
+    console.error("Compliance traceability mapping failed, returning gap fallback:", error);
+    // Fallback: mark all as unknown gaps
+    const fallbackMap = allRequirements.map((req, idx) => ({
+      mapId: `cm-fallback-${idx}-${Date.now()}`,
+      lineItemIndex: 0,
+      productLabel: "All Products",
+      requirementType: "documentation",
+      requirement: req,
+      status: "gap",
+      coveringFiles: [],
+      gap: "Coverage check failed — verify manually.",
+      severity: "minor",
+    }));
+    return {
+      complianceMap: fallbackMap,
+      summary: language === "zh" ? "合规审查失败，请手动核查。" : "Compliance check failed — please verify manually.",
+      gapCount: fallbackMap.length,
+      coveredCount: 0,
+    };
+  }
 }
 
 async function normalizeKnowledgeFile(file, index, now, language) {

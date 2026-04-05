@@ -314,13 +314,22 @@ function validateIntakeParsing(caseRecord) {
 function validateProductNormalization(caseRecord) {
   const productItems = caseRecord.productItems || [];
   const normalizedCount = productItems.filter(isNormalizedProduct).length;
+  // Feature 1: gather blocker-level spec conflicts across all product items
+  const specConflicts = productItems
+    .flatMap((i) => i.specFlags || [])
+    .filter((f) => f.type === "conflict" && f.severity === "blocker");
   const checkedItems = [
     item("Product items separated", productItems.length > 0, `${productItems.length} product items available.`),
     item("Quotable specs normalized", normalizedCount === productItems.length && productItems.length > 0, `${normalizedCount}/${productItems.length} items have core fields.`),
+    item("Spec dimensions consistent", specConflicts.length === 0, specConflicts.length === 0 ? "No spec conflicts detected." : `${specConflicts.length} dimension conflict(s) found.`),
   ];
 
-  if (productItems.length && normalizedCount === productItems.length) {
+  if (productItems.length && normalizedCount === productItems.length && specConflicts.length === 0) {
     return result("met", "Product normalization is ready for downstream workflow steps.", checkedItems);
+  }
+
+  if (specConflicts.length > 0) {
+    return result("partial", "Spec dimension conflicts were detected and must be resolved before quoting.", checkedItems, specConflicts.map((f) => f.message));
   }
 
   if (productItems.length) {
@@ -389,13 +398,22 @@ function validateHistoricalRetrieval(caseRecord) {
 
 function validateFeasibility(caseRecord) {
   const comparison = caseRecord.knowledgeComparison;
+  // Feature 4: check compliance map for critical gaps
+  const complianceMap   = caseRecord.complianceMap || [];
+  const criticalGaps    = complianceMap.filter((m) => m.status === "gap" && m.severity === "critical");
+  const hasComplianceRun = complianceMap.length > 0;
   const checkedItems = [
     item("Knowledge review completed", Boolean(comparison), comparison ? comparison.analysisSummary : "No knowledge review yet."),
     item("Required support coverage acceptable", comparison?.recommendedStatus === "Ready to Quote", comparison?.recommendedStatus || "Pending"),
+    item("Compliance requirements covered", !criticalGaps.length, hasComplianceRun ? (criticalGaps.length ? `${criticalGaps.length} critical gap(s)` : "All requirements covered.") : "Not yet checked."),
   ];
 
-  if (comparison?.recommendedStatus === "Ready to Quote") {
+  if (comparison?.recommendedStatus === "Ready to Quote" && !criticalGaps.length) {
     return result("met", "Feasibility analysis passed on current knowledge support.", checkedItems);
+  }
+
+  if (criticalGaps.length) {
+    return result("partial", "Critical compliance gaps must be resolved before quoting.", checkedItems, criticalGaps.map((g) => `${g.requirement}: ${g.gap}`));
   }
 
   if (comparison) {

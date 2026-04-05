@@ -10,6 +10,8 @@
  * Supports all input types: email text, PDF, Excel, Word, CSV, mixed language.
  */
 
+import { validateProductItemSpecs, extractConflictMessages } from "./spec-validator.js";
+
 const MODEL = "gpt-5.2";
 const API_URL = "https://api.openai.com/v1/responses";
 
@@ -698,10 +700,17 @@ export function mapPipelineToCaseFields(agent1Result, agent2Result) {
     };
   });
 
+  // Feature 1: Spec validation — detect conflicts and derive missing dimensions
+  const validatedProductItems = validateProductItemSpecs(productItems);
+  const specConflictMessages  = extractConflictMessages(validatedProductItems);
+
   // Enrich missingInfo from Agent 1 parsing_flags
   const parsingFlags = agent1Result.parsing_flags || [];
   const missingFields         = parsingFlags.filter((f) => f.flag_type === "missing_info").map((f) => f.description);
-  const ambiguousRequirements = parsingFlags.filter((f) => f.flag_type === "ambiguous").map((f) => f.description);
+  const ambiguousRequirements = [
+    ...parsingFlags.filter((f) => f.flag_type === "ambiguous").map((f) => f.description),
+    ...specConflictMessages,
+  ];
   const lowConfidenceItems    = agent2Result.standardized_items
     .filter((s) => s.confidence_level === "LOW")
     .map((s) => `${s.internal_code}: ${s.review_reason}`);
@@ -710,7 +719,7 @@ export function mapPipelineToCaseFields(agent1Result, agent2Result) {
     customerName: meta.customer_name || "Unspecified Customer",
     projectName:  meta.rfq_number ? `RFQ ${meta.rfq_number}` : "Customer RFQ Review",
     extractedFields,
-    productItems,
+    productItems: validatedProductItems,
     missingInfo: { missingFields, ambiguousRequirements, lowConfidenceItems },
     pipelineMetadata: {
       rfqMetadata:       meta,

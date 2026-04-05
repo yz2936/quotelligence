@@ -555,15 +555,73 @@ function renderCompactRecommendation(caseData, language) {
         <p>${escapeHtml(caseData.knowledgeComparison?.analysisSummary || t(language, "noKnowledgeOverviewYet"))}</p>
       </div>
     </div>
+    ${renderComplianceTraceability(caseData, language)}
+  `;
+}
+
+function renderComplianceTraceability(caseData, language) {
+  const map = caseData.complianceMap;
+  const caseId = caseData.caseId;
+  if (!map || !map.length) {
+    return `
+      <div class="section-block" style="margin-top:16px;">
+        <p class="eyebrow">Compliance Traceability</p>
+        <p class="muted" style="margin-bottom:8px;">Maps inspection &amp; documentation requirements to uploaded certificates and MTRs.</p>
+        <button class="button button--secondary" data-action="run-compliance-check" data-case-id="${escapeHtml(caseId)}">Run Compliance Check</button>
+      </div>
+    `;
+  }
+  const gapCount     = map.filter((m) => m.status === "gap").length;
+  const coveredCount = map.filter((m) => m.status === "covered").length;
+  const statusBadge  = (s) => s === "covered" ? '<span class="status-badge status-badge--success">Covered</span>' : s === "partial" ? '<span class="status-badge status-badge--warning">Partial</span>' : '<span class="status-badge status-badge--danger">Gap</span>';
+  return `
+    <div class="section-block" style="margin-top:16px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+        <p class="eyebrow" style="margin:0;">Compliance Traceability</p>
+        <span class="muted" style="font-size:12px;">${coveredCount} covered · ${gapCount} gap(s)</span>
+        <button class="button button--secondary" style="margin-left:auto;font-size:11px;" data-action="run-compliance-check" data-case-id="${escapeHtml(caseId)}">Re-check</button>
+      </div>
+      <div class="table-shell">
+        <table class="case-table">
+          <thead><tr><th>Product</th><th>Type</th><th>Requirement</th><th>Status</th><th>Covered By</th><th>Gap Note</th></tr></thead>
+          <tbody>
+            ${map.map((entry) => `
+              <tr class="case-table__row">
+                <td>${escapeHtml(entry.productLabel || "")}</td>
+                <td>${escapeHtml(entry.requirementType || "")}</td>
+                <td>${escapeHtml(entry.requirement || "")}</td>
+                <td>${statusBadge(entry.status)}</td>
+                <td>${entry.coveringFiles.map((f) => escapeHtml(f)).join(", ") || "—"}</td>
+                <td class="muted">${escapeHtml(entry.gap || "")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
   `;
 }
 
 let stateForRender = { selectedProductIndex: 0 };
 
+function renderSpecFlags(specFlags) {
+  if (!specFlags || !specFlags.length) return "";
+  return specFlags.map((flag) => {
+    const cls = flag.type === "conflict"
+      ? (flag.severity === "blocker" ? "spec-flag spec-flag--conflict" : "spec-flag spec-flag--warning")
+      : flag.type === "derived" ? "spec-flag spec-flag--derived"
+      : "spec-flag spec-flag--assumed";
+    const label = flag.type === "conflict" ? "Conflict" : flag.type === "derived" ? "Derived" : "Check";
+    return `<span class="${cls}" title="${escapeHtml(flag.message)}">${label}</span>`;
+  }).join(" ");
+}
+
 function renderProductTable(productItems, language) {
   if (!productItems.length) {
     return `<p class="muted">${t(language, "noItemsYet")}</p>`;
   }
+
+  const hasAnyFlags = productItems.some((item) => (item.specFlags || []).length > 0);
 
   return `
     <div class="table-shell">
@@ -578,6 +636,7 @@ function renderProductTable(productItems, language) {
             <th>${t(language, "schedule")}</th>
             <th>${t(language, "lengthPerPiece")}</th>
             <th>${t(language, "quantity")}</th>
+            ${hasAnyFlags ? "<th>Spec Flags</th>" : ""}
           </tr>
         </thead>
         <tbody>
@@ -593,6 +652,7 @@ function renderProductTable(productItems, language) {
                   <td>${escapeHtml(item.schedule || t(language, "noneLabel"))}</td>
                   <td>${escapeHtml(item.lengthPerPiece || t(language, "noneLabel"))}</td>
                   <td>${escapeHtml(item.quantity || t(language, "noneLabel"))}</td>
+                  ${hasAnyFlags ? `<td>${renderSpecFlags(item.specFlags)}</td>` : ""}
                 </tr>
               `
             )

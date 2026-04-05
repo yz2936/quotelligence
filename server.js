@@ -7,7 +7,7 @@ import { getEmailIntakePublicConfig, syncEmailIntakeMailbox } from "./server/ema
 import { loadEnv } from "./server/env.js";
 import { buildCaseFromSubmission, deriveCaseStatus, deriveMissingInfo, getAllowedCaseStatuses } from "./server/intake-service.js";
 import { answerWorkspaceQuestion } from "./server/openai-client.js";
-import { buildKnowledgeComparison, buildKnowledgeFilesFromUpload, deriveKnowledgeStatus, getKnowledgeCategories, normalizeStoredQuoteEstimate, summarizeKnowledgeFile } from "./server/knowledge-service.js";
+import { buildComplianceTraceability, buildKnowledgeComparison, buildKnowledgeFilesFromUpload, deriveKnowledgeStatus, getKnowledgeCategories, normalizeStoredQuoteEstimate, summarizeKnowledgeFile } from "./server/knowledge-service.js";
 import { buildQuoteDraft, buildQuoteEmail, buildQuoteDocument } from "./server/quote-service.js";
 import { deleteCase, getCase, getComplaint, getKnowledgeFile, getStoreHealth, getStoreMode, listCases, listComplaints, listKnowledgeFiles, saveCase, saveComplaint, saveKnowledgeFile } from "./server/store.js";
 import { authenticateRequest, getPublicSupabaseConfig } from "./server/supabase-auth.js";
@@ -404,6 +404,41 @@ export async function handleRequest(req, res) {
         case: updated,
         knowledgeFiles: knowledgeFiles.map(summarizeKnowledgeFileRecord),
       });
+    }
+
+    // Feature 4: Compliance Traceability Check
+    const complianceCheckMatch = url.pathname.match(/^\/api\/cases\/([^/]+)\/compliance-check$/);
+    if (complianceCheckMatch && req.method === "POST") {
+      const caseId = decodeURIComponent(complianceCheckMatch[1]);
+      const payload = await readJsonBody(req);
+      const language = String(payload.language || "en");
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot, requestOwnerId, requestOwnerEmail);
+
+      if (!caseRecord) {
+        return sendJson(res, 404, { error: "Case not found" });
+      }
+
+      const knowledgeFiles = await listKnowledgeFiles(requestOwnerId);
+      const { complianceMap, summary, gapCount, coveredCount } = await buildComplianceTraceability({
+        caseRecord,
+        knowledgeFiles,
+        language,
+      });
+
+      const updated = syncCaseWorkflow({
+        previousCase: caseRecord,
+        actor: "system",
+        source: "compliance_check",
+        now: new Date(),
+        nextCase: {
+          ...caseRecord,
+          complianceMap,
+          updatedAt: new Date().toISOString().slice(0, 10),
+        },
+      });
+
+      await saveCase(updated, requestOwnerId);
+      return sendJson(res, 200, { complianceMap, summary, gapCount, coveredCount, case: updated });
     }
 
     if (url.pathname === "/api/quote/build" && req.method === "POST") {

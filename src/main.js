@@ -26,6 +26,9 @@ import {
   summarizeKnowledgeFile,
   updateCase,
   uploadKnowledgeFiles,
+  runComplianceCheck,
+  fetchSupplierMatrix,
+  refreshClarificationQuestions,
 } from "./api.js";
 import { confidenceLabel, t } from "./i18n.js";
 import {
@@ -151,6 +154,8 @@ const state = {
     emailLoading: false,
     emailDraft: null,
     sendFeedback: "",
+    supplierMatrix: null,
+    supplierMatrixLoading: false,
   },
   outcomes: {
     items: [],
@@ -453,6 +458,26 @@ root.addEventListener("click", async (event) => {
     if (action === "run-knowledge-compare") {
       event.preventDefault();
       await runKnowledgeComparison();
+      return;
+    }
+
+    if (action === "run-compliance-check") {
+      event.preventDefault();
+      const targetCaseId = target.dataset.caseId || state.selectedCase?.caseId || state.quote.selectedCaseId;
+      if (targetCaseId) await runComplianceCheckAction(targetCaseId);
+      return;
+    }
+
+    if (action === "load-supplier-matrix") {
+      event.preventDefault();
+      await loadSupplierMatrix();
+      return;
+    }
+
+    if (action === "refresh-clarification-questions") {
+      event.preventDefault();
+      const targetCaseId = target.dataset.caseId || state.selectedCase?.caseId || state.quote.selectedCaseId;
+      if (targetCaseId) await runRefreshClarifications(targetCaseId);
       return;
     }
 
@@ -1325,6 +1350,49 @@ async function runKnowledgeComparison() {
     syncUpdatedCase(response.case);
   } finally {
     state.quote.comparing = false;
+    mount();
+  }
+}
+
+async function runComplianceCheckAction(caseId) {
+  state.error = "";
+  mount();
+  try {
+    const response = await runComplianceCheck(caseId, state.language, state.selectedCase || null);
+    syncUpdatedCase(response.case);
+  } catch (err) {
+    state.error = err.message || "Compliance check failed.";
+    mount();
+  }
+}
+
+async function loadSupplierMatrix() {
+  if (!state.quote.selectedCaseId) return;
+  state.quote.supplierMatrixLoading = true;
+  mount();
+  try {
+    const response = await fetchSupplierMatrix(
+      state.quote.selectedCaseId,
+      state.language,
+      state.quote.selectedCase || null
+    );
+    state.quote.supplierMatrix = response.supplierMatrix;
+  } catch (err) {
+    state.error = err.message || "Supplier matrix load failed.";
+  } finally {
+    state.quote.supplierMatrixLoading = false;
+    mount();
+  }
+}
+
+async function runRefreshClarifications(caseId) {
+  state.error = "";
+  mount();
+  try {
+    const response = await refreshClarificationQuestions(caseId, state.language, state.selectedCase || null);
+    syncUpdatedCase(response.case);
+  } catch (err) {
+    state.error = err.message || "Clarification refresh failed.";
     mount();
   }
 }

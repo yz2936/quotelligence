@@ -3,6 +3,7 @@ import { extractEmailPackageFromBuffer, extractTextFromBuffer } from "./file-tex
 import { extractPdfTextWithOpenAI, generateCaseAnalysis } from "./openai-client.js";
 import { initializeCaseWorkflow } from "./workflow-engine.js";
 import { runAgent1, runAgent2, mapPipelineToCaseFields } from "./agent-pipeline.js";
+import { validateProductItemSpecs, extractConflictMessages } from "./spec-validator.js";
 
 const ALLOWED_CASE_STATUSES = [
   "New",
@@ -46,9 +47,12 @@ export async function buildCaseFromSubmission({ files, emailText, language = "en
     createField("Destination", llmResult.destination, inferConfidence(llmResult.destination), sourceReferenceForField(parsedFiles, "Destination")),
     createField("Special Notes", llmResult.special_notes, inferConfidence(llmResult.special_notes), "Intake summary"),
   ];
-  const productItems = buildProductItems(llmResult);
+  const rawProductItems = buildProductItems(llmResult);
+  // Feature 1: Spec validation — detect conflicts and derive missing dimensions
+  const productItems = validateProductItemSpecs(rawProductItems);
+  const specConflictMessages = extractConflictMessages(productItems);
 
-  const missingInfo = buildDerivedMissingInfo({ llmResult, sourceContext });
+  const missingInfo = buildDerivedMissingInfo({ llmResult, sourceContext, specConflictMessages });
   const status = llmResult.current_status || deriveCaseStatus(missingInfo);
   const derivedAiSummary = buildDerivedAiSummary({ llmResult, missingInfo, sourceContext });
   const aiSummary = {
@@ -747,7 +751,7 @@ function buildSourceContext({ emailText, parsedFiles }) {
   };
 }
 
-function buildDerivedMissingInfo({ llmResult, sourceContext }) {
+function buildDerivedMissingInfo({ llmResult, sourceContext, specConflictMessages = [] }) {
   const missingFields = [];
   const ambiguousRequirements = [];
   const lowConfidenceItems = [];
@@ -796,6 +800,11 @@ function buildDerivedMissingInfo({ llmResult, sourceContext }) {
     hasMeaningfulValue(primaryItem.quantity) && !/\b(meters?|pcs?|pieces?|tons?|kg|sets?|lots?)\b/i.test(primaryItem.quantity),
     `Quantity unit may be ambiguous: ${cleanValue(primaryItem.quantity)}`
   );
+
+  // Feature 1: merge spec conflict messages (ASME table validation)
+  for (const msg of specConflictMessages) {
+    addUnique(ambiguousRequirements, true, msg);
+  }
 
   return {
     missingFields: dedupeStrings(missingFields),
