@@ -902,8 +902,12 @@ async function syncRouteData() {
   await syncSystemStatus();
 
   if (state.auth.user) {
-    const analystResponse = await fetchAnalystMessages();
-    state.analyst.messages = Array.isArray(analystResponse.messages) ? analystResponse.messages : [];
+    try {
+      const analystResponse = await fetchAnalystMessages();
+      state.analyst.messages = Array.isArray(analystResponse.messages) ? analystResponse.messages : [];
+    } catch {
+      state.analyst.messages = [];
+    }
   }
 
   const needsCaseData =
@@ -2062,8 +2066,12 @@ async function persistAnalystMessages() {
       trace: message.trace || null,
     }));
 
-  const response = await saveAnalystMessages(persistedMessages);
-  state.analyst.messages = Array.isArray(response.messages) ? response.messages : persistedMessages;
+  try {
+    const response = await saveAnalystMessages(persistedMessages);
+    state.analyst.messages = Array.isArray(response.messages) ? response.messages : persistedMessages;
+  } catch {
+    state.analyst.messages = persistedMessages;
+  }
 }
 
 function syncAnalystThreadScroll() {
