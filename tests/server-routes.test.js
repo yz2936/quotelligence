@@ -427,6 +427,47 @@ test("pending outcomes route returns completed negotiation records", async () =>
   assert.equal(payload.completedItems[0].outcome, "won");
 });
 
+test("outcomes route can move no-response deals back into negotiating with a new follow-up date", async () => {
+  __resetStoreForTests();
+  await saveCase({
+    caseId: "QC-NO-RESPONSE",
+    createdAt: "2026-03-29",
+    updatedAt: "2026-03-29",
+    customerName: "HeatEx",
+    projectName: "Requote",
+    quoteEstimate: {
+      currency: "USD",
+      total: 6400,
+      lineItems: [{ reviewFlag: "GREEN" }],
+    },
+    quoteLifecycle: {
+      status: "no_response",
+      outcome: "no_response",
+      recordedAt: "2026-03-30T10:00:00.000Z",
+      followUpDue: "2026-03-31",
+    },
+  });
+
+  const response = await invokeRoute({
+    method: "POST",
+    url: "/api/outcomes",
+    headers: { "content-type": "application/json" },
+    body: Buffer.from(
+      JSON.stringify({
+        caseId: "QC-NO-RESPONSE",
+        result: "negotiating",
+        followUpDue: "2026-04-10",
+        actor: "eric@company.com",
+      })
+    ),
+  });
+
+  assert.equal(response.statusCode, 200);
+  const payload = JSON.parse(response.body);
+  assert.equal(payload.case.quoteLifecycle.status, "negotiating");
+  assert.equal(payload.case.quoteLifecycle.followUpDue, "2026-04-10");
+});
+
 test("quote approval route allows manually overridden red lines with final prices", async () => {
   __resetStoreForTests();
   await saveCase({

@@ -2078,16 +2078,37 @@ function renderOutcomesPage(state) {
                       <tbody>
                         ${completedItems
                           .map(
-                            (item) => `
+                            (item) => {
+                              const form = state.outcomes.forms[item.caseId] || {};
+                              const continueDate = form.followUpDue || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+                              return `
                               <tr class="case-table__row">
                                 <td>${escapeHtml(String(item.recordedAt || "").slice(0, 10) || t(language, "noneLabel"))}</td>
                                 <td>${escapeHtml(item.customerName || t(language, "noneLabel"))}</td>
                                 <td>${escapeHtml(item.projectName || t(language, "noneLabel"))}</td>
                                 <td>${escapeHtml(formatQuoteStage({ status: item.outcome || item.status }, language))}</td>
                                 <td>${formatMoneyValue(item.currency || "USD", item.finalPrice || item.totalValue || 0)}</td>
-                                <td>${escapeHtml(formatNegotiationOutcomeDetails(item, language))}</td>
+                                <td>
+                                  <div class="dashboard-list-item__meta">
+                                    <span>${escapeHtml(formatNegotiationOutcomeDetails(item, language))}</span>
+                                    ${
+                                      item.outcome === "no_response"
+                                        ? `
+                                          <div class="case-table__actions">
+                                            <input class="text-input text-input--table" type="date" value="${escapeAttribute(continueDate)}" data-outcome-field="followUpDue" data-case-id="${item.caseId}" />
+                                            <button class="button button--small button--secondary" data-action="continue-follow-up" data-case-id="${item.caseId}">
+                                              ${t(language, "continueFollowUp")}
+                                            </button>
+                                          </div>
+                                        `
+                                        : ""
+                                    }
+                                  </div>
+                                </td>
                               </tr>
                             `
+                            }
                           )
                           .join("")}
                       </tbody>

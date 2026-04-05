@@ -831,11 +831,17 @@ export async function handleRequest(req, res) {
         return sendJson(res, 422, { error: "Final price is required when the quote is won." });
       }
 
+      if (result === "negotiating" && !String(payload.followUpDue || "").trim()) {
+        payload.followUpDue = addDays(new Date(), 3).toISOString().slice(0, 10);
+      }
+
       const now = new Date();
+      const normalizedFollowUpDue = String(payload.followUpDue || "").trim();
       const lifecycle = {
         ...ensureQuoteLifecycle(caseRecord),
         status: result,
         outcome: result,
+        followUpDue: normalizedFollowUpDue || ensureQuoteLifecycle(caseRecord).followUpDue || null,
         recordedAt: now.toISOString(),
         recordedBy: String(payload.actor || "user"),
         finalPrice: Number.isFinite(Number(payload.finalPrice)) ? Number(payload.finalPrice) : null,

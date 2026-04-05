@@ -415,6 +415,12 @@ root.addEventListener("click", async (event) => {
       return;
     }
 
+    if (action === "continue-follow-up") {
+      event.preventDefault();
+      await continueFollowUp(target.dataset.caseId);
+      return;
+    }
+
     if (action === "preview-knowledge-file") {
       event.preventDefault();
       await openKnowledgePreview(target.dataset.knowledgeFileId);
@@ -1702,7 +1708,7 @@ function setOutcomeFormValue(caseId, field, value) {
   }
 
   state.outcomes.forms[caseId] = {
-    ...(state.outcomes.forms[caseId] || { result: "", finalPrice: "", lossReason: "", competitorPrice: "" }),
+    ...(state.outcomes.forms[caseId] || { result: "", finalPrice: "", lossReason: "", competitorPrice: "", followUpDue: "" }),
     [field]: value,
   };
 }
@@ -1722,12 +1728,56 @@ async function submitOutcome(caseId) {
     finalPrice: form.finalPrice,
     lossReason: form.lossReason,
     competitorPrice: form.competitorPrice,
+    followUpDue: form.followUpDue,
     actor: state.auth.user?.email || "user",
   };
 
   const response = await logQuoteOutcome(payload);
   syncUpdatedCase(response.case);
   delete state.outcomes.forms[caseId];
+
+  if (window.location.hash === "#/outcomes") {
+    const outcomesResponse = await fetchPendingOutcomes();
+    state.outcomes.items = outcomesResponse.items;
+    state.outcomes.completedItems = Array.isArray(outcomesResponse.completedItems) ? outcomesResponse.completedItems : [];
+    state.outcomes.summary = outcomesResponse.summary || null;
+  }
+
+  if (window.location.hash === "#/dashboard") {
+    const statsResponse = await fetchDashboardStats();
+    state.dashboard.stats = statsResponse.stats;
+  }
+
+  mount();
+}
+
+async function continueFollowUp(caseId) {
+  if (!caseId) {
+    return;
+  }
+
+  const existingForm = state.outcomes.forms[caseId] || {};
+  const fallbackDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const followUpDue = existingForm.followUpDue || fallbackDate;
+
+  state.error = "";
+  mount();
+
+  const response = await logQuoteOutcome({
+    caseId,
+    result: "negotiating",
+    followUpDue,
+    actor: state.auth.user?.email || "user",
+  });
+
+  syncUpdatedCase(response.case);
+  state.outcomes.forms[caseId] = {
+    result: "negotiating",
+    finalPrice: "",
+    lossReason: "",
+    competitorPrice: "",
+    followUpDue,
+  };
 
   if (window.location.hash === "#/outcomes") {
     const outcomesResponse = await fetchPendingOutcomes();
