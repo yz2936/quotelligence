@@ -7,6 +7,7 @@ import {
 } from "./ui.js";
 
 const routes = {
+  "#/landing": renderLandingPage,
   "#/intake": renderIntakeScreen,
   "#/case": renderCaseWorkspace,
   "#/knowledge": renderKnowledgeComparison,
@@ -55,6 +56,7 @@ export function renderApp(root, state, currentHash) {
           <p>${t(language, "appSubtitle")}</p>
         </div>
         <nav class="sidebar__nav">
+          ${renderNavLink("#/landing", t(language, "landingNav"), activeRoute, svgLandingIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/dashboard", t(language, "dashboardNav"), activeRoute, svgDashboardIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/intake", t(language, "chatIntake"), activeRoute, svgIntakeIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/case", t(language, "caseWorkspace"), activeRoute, svgCaseIcon(), state.sidebarCollapsed)}
@@ -209,6 +211,238 @@ function svgOutcomeIcon() {
 
 function svgDashboardIcon() {
   return `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2.5 12.5V8.5M7.5 12.5V4.5M12.5 12.5V6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M1.5 12.5h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+}
+
+function svgLandingIcon() {
+  return `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1.75L13 4.75v5.5l-5.5 3-5.5-3v-5.5l5.5-3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M7.5 1.75v11.5M2 4.75l5.5 3 5.5-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function renderLandingPage(state) {
+  const language = state.language;
+  const stats = state.dashboard.stats || {};
+  const readiness = [
+    {
+      label: t(language, "landingReadinessAi"),
+      value: state.system.aiConfigured ? t(language, "landingReady") : t(language, "landingNotReady"),
+      status: state.system.aiConfigured ? "success" : "warning",
+      detail: state.system.model || t(language, "landingNoModel"),
+    },
+    {
+      label: t(language, "landingReadinessStorage"),
+      value: state.system.storageMode === "database" && state.system.storageHealthy ? t(language, "landingReady") : t(language, "landingCheckNeeded"),
+      status: state.system.storageMode === "database" && state.system.storageHealthy ? "success" : "warning",
+      detail: `${state.system.storageMode || "unknown"}${state.system.storageHealthy === false ? ` • ${state.system.storageDetails || ""}` : ""}`,
+    },
+    {
+      label: t(language, "landingReadinessAuth"),
+      value: state.system.supabase?.configured ? t(language, "landingReady") : t(language, "landingNotReady"),
+      status: state.system.supabase?.configured ? "success" : "warning",
+      detail: state.system.supabase?.url || t(language, "landingNoConfig"),
+    },
+    {
+      label: t(language, "landingReadinessMailbox"),
+      value: state.system.emailIntake?.configured ? t(language, "landingReady") : t(language, "landingOptional"),
+      status: state.system.emailIntake?.configured ? "success" : "neutral",
+      detail: state.system.emailIntake?.configured
+        ? `${state.system.emailIntake.user} • ${state.system.emailIntake.folder}`
+        : t(language, "landingMailboxManual"),
+    },
+    {
+      label: t(language, "landingReadinessDelivery"),
+      value: state.system.emailDelivery?.configured ? t(language, "landingReady") : t(language, "landingNotReady"),
+      status: state.system.emailDelivery?.configured ? "success" : "danger",
+      detail: state.system.emailDelivery?.configured
+        ? `${state.system.emailDelivery.fromName || ""} ${state.system.emailDelivery.fromEmail || ""}`.trim()
+        : t(language, "landingSmtpMissing"),
+    },
+  ];
+
+  const featureRows = buildLandingFeatureRows(state, language);
+  const workflowSteps = buildLandingWorkflowSteps(language);
+
+  return {
+    title: t(language, "landingTitle"),
+    body: `
+      <div class="content-stack landing-page">
+        <section class="summary-card landing-hero">
+          <p class="eyebrow">${t(language, "landingEyebrow")}</p>
+          <h3>${t(language, "landingHeroTitle")}</h3>
+          <p>${t(language, "landingHeroBody")}</p>
+          <div class="landing-hero__actions">
+            <a class="button" href="#/intake">${t(language, "landingPrimaryCta")}</a>
+            <a class="button button--secondary" href="#/quote">${t(language, "landingSecondaryCta")}</a>
+          </div>
+        </section>
+
+        <div class="content-grid landing-kpi-grid">
+          ${renderMetricCard(t(language, "landingMetricCases"), String(state.cases.length || 0))}
+          ${renderMetricCard(t(language, "landingMetricComplaints"), String((state.complaints.items || []).length || 0))}
+          ${renderMetricCard(t(language, "landingMetricKnowledge"), String((state.knowledge.files || []).length || 0))}
+          ${renderMetricCard(t(language, "landingMetricNegotiations"), String(stats.pipelineCounts?.negotiating || 0))}
+        </div>
+
+        ${renderSection({
+          title: t(language, "landingReadinessTitle"),
+          description: t(language, "landingReadinessDescription"),
+          language,
+          body: `
+            <div class="content-grid landing-readiness-grid">
+              ${readiness
+                .map(
+                  (item) => `
+                    <article class="summary-card landing-readiness-card">
+                      <p class="eyebrow">${escapeHtml(item.label)}</p>
+                      ${renderLandingStatusBadge(item.value, item.status)}
+                      <p class="muted">${escapeHtml(item.detail || t(language, "noneLabel"))}</p>
+                    </article>
+                  `
+                )
+                .join("")}
+            </div>
+          `,
+        })}
+
+        ${renderSection({
+          title: t(language, "landingFeaturesTitle"),
+          description: t(language, "landingFeaturesDescription"),
+          language,
+          body: `
+            <div class="table-shell">
+              <table class="case-table landing-feature-table">
+                <thead>
+                  <tr>
+                    <th>${t(language, "landingFeatureName")}</th>
+                    <th>${t(language, "landingFeatureValue")}</th>
+                    <th>${t(language, "landingFeatureEvidence")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${featureRows
+                    .map(
+                      (row) => `
+                        <tr class="case-table__row">
+                          <td>${escapeHtml(row.name)}</td>
+                          <td>${renderLandingStatusBadge(row.value, row.status || "neutral")}</td>
+                          <td>${escapeHtml(row.evidence)}</td>
+                        </tr>
+                      `
+                    )
+                    .join("")}
+                </tbody>
+              </table>
+            </div>
+          `,
+        })}
+
+        ${renderSection({
+          title: t(language, "landingFlowTitle"),
+          description: t(language, "landingFlowDescription"),
+          language,
+          body: `
+            <div class="landing-flow-list">
+              ${workflowSteps
+                .map(
+                  (step, index) => `
+                    <article class="summary-card landing-flow-step">
+                      <p class="eyebrow">${t(language, "landingStepLabel")} ${index + 1}</p>
+                      <h3>${escapeHtml(step.title)}</h3>
+                      <p>${escapeHtml(step.detail)}</p>
+                    </article>
+                  `
+                )
+                .join("")}
+            </div>
+          `,
+        })}
+      </div>
+    `,
+  };
+}
+
+function buildLandingFeatureRows(state, language) {
+  return [
+    {
+      name: t(language, "landingFeatureIntake"),
+      value: t(language, "landingImplemented"),
+      status: "success",
+      evidence: t(language, "landingFeatureIntakeEvidence"),
+    },
+    {
+      name: t(language, "landingFeatureMailbox"),
+      value: state.system.emailIntake?.configured ? t(language, "landingImplemented") : t(language, "landingConfigNeeded"),
+      status: state.system.emailIntake?.configured ? "success" : "warning",
+      evidence: state.system.emailIntake?.configured ? t(language, "landingFeatureMailboxEvidence") : t(language, "landingFeatureMailboxFallback"),
+    },
+    {
+      name: t(language, "landingFeatureCaseWorkshop"),
+      value: t(language, "landingImplemented"),
+      status: "success",
+      evidence: t(language, "landingFeatureCaseWorkshopEvidence"),
+    },
+    {
+      name: t(language, "landingFeatureKnowledge"),
+      value: t(language, "landingImplemented"),
+      status: "success",
+      evidence: t(language, "landingFeatureKnowledgeEvidence"),
+    },
+    {
+      name: t(language, "landingFeatureQuote"),
+      value: t(language, "landingImplemented"),
+      status: "success",
+      evidence: t(language, "landingFeatureQuoteEvidence"),
+    },
+    {
+      name: t(language, "landingFeatureNegotiation"),
+      value: state.system.emailDelivery?.configured ? t(language, "landingImplemented") : t(language, "landingPartial"),
+      status: state.system.emailDelivery?.configured ? "success" : "warning",
+      evidence: state.system.emailDelivery?.configured ? t(language, "landingFeatureNegotiationEvidence") : t(language, "landingFeatureNegotiationFallback"),
+    },
+    {
+      name: t(language, "landingFeatureDashboard"),
+      value: t(language, "landingImplemented"),
+      status: "success",
+      evidence: t(language, "landingFeatureDashboardEvidence"),
+    },
+    {
+      name: t(language, "landingFeatureAnalyst"),
+      value: t(language, "landingImplemented"),
+      status: "success",
+      evidence: t(language, "landingFeatureAnalystEvidence"),
+    },
+  ];
+}
+
+function buildLandingWorkflowSteps(language) {
+  return [
+    {
+      title: t(language, "landingFlowIntakeTitle"),
+      detail: t(language, "landingFlowIntakeDetail"),
+    },
+    {
+      title: t(language, "landingFlowCaseTitle"),
+      detail: t(language, "landingFlowCaseDetail"),
+    },
+    {
+      title: t(language, "landingFlowKnowledgeTitle"),
+      detail: t(language, "landingFlowKnowledgeDetail"),
+    },
+    {
+      title: t(language, "landingFlowQuoteTitle"),
+      detail: t(language, "landingFlowQuoteDetail"),
+    },
+    {
+      title: t(language, "landingFlowNegotiateTitle"),
+      detail: t(language, "landingFlowNegotiateDetail"),
+    },
+    {
+      title: t(language, "landingFlowLearnTitle"),
+      detail: t(language, "landingFlowLearnDetail"),
+    },
+  ];
+}
+
+function renderLandingStatusBadge(label, tone = "neutral") {
+  return `<span class="status-badge status-badge--${escapeHtml(tone)}">${escapeHtml(label || "")}</span>`;
 }
 
 function renderIntakeScreen(state) {

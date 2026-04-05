@@ -988,6 +988,7 @@ async function syncRouteData() {
   }
 
   const needsCaseData =
+    window.location.hash === "#/landing" ||
     window.location.hash === "#/case" ||
     window.location.hash === "#/knowledge" ||
     window.location.hash === "#/complaints" ||
@@ -1010,23 +1011,23 @@ async function syncRouteData() {
       state.allowedStatuses = allowedStatuses;
       reconcileSelectedCases();
 
-      if (window.location.hash === "#/knowledge" || window.location.hash === "#/quote") {
+      if (window.location.hash === "#/landing" || window.location.hash === "#/knowledge" || window.location.hash === "#/quote") {
         const knowledgeResponse = await fetchKnowledgeBase();
         state.knowledge.files = knowledgeResponse.knowledgeFiles;
         state.knowledge.categories = knowledgeResponse.categories;
       }
 
-      if (window.location.hash === "#/complaints") {
+      if (window.location.hash === "#/landing" || window.location.hash === "#/complaints") {
         const response = await fetchComplaints();
         state.complaints.items = response.complaints;
 
-        if (state.complaints.selected?.complaintId) {
+        if (window.location.hash === "#/complaints" && state.complaints.selected?.complaintId) {
           const detail = await fetchComplaint(state.complaints.selected.complaintId);
           state.complaints.selected = detail.complaint;
-        } else if (response.complaints[0]?.complaintId) {
+        } else if (window.location.hash === "#/complaints" && response.complaints[0]?.complaintId) {
           const detail = await fetchComplaint(response.complaints[0].complaintId);
           state.complaints.selected = detail.complaint;
-        } else {
+        } else if (window.location.hash === "#/complaints") {
           state.complaints.selected = null;
         }
       }
@@ -1040,7 +1041,7 @@ async function syncRouteData() {
         state.outcomes.loading = false;
       }
 
-      if (window.location.hash === "#/dashboard") {
+      if (window.location.hash === "#/landing" || window.location.hash === "#/dashboard") {
         state.dashboard.loading = true;
         const response = await fetchDashboardStats();
         state.dashboard.stats = response.stats;
