@@ -20,6 +20,8 @@ import {
   fetchSystemStatus,
   logQuoteOutcome,
   markQuoteSent,
+  scheduleFollowUp,
+  sendFollowUp,
   createQuoteSnapshot,
   generateQuoteEmail,
   generateQuoteEstimate,
@@ -110,6 +112,11 @@ const state = {
       folder: "",
       processedFolder: "",
       maxMessagesPerSync: 10,
+    },
+    emailDelivery: {
+      configured: false,
+      fromEmail: "",
+      fromName: "",
     },
   },
   auth: {
@@ -418,6 +425,18 @@ root.addEventListener("click", async (event) => {
     if (action === "continue-follow-up") {
       event.preventDefault();
       await continueFollowUp(target.dataset.caseId);
+      return;
+    }
+
+    if (action === "send-follow-up-now") {
+      event.preventDefault();
+      await sendFollowUpNow(target.dataset.caseId);
+      return;
+    }
+
+    if (action === "schedule-follow-up") {
+      event.preventDefault();
+      await scheduleAutomaticFollowUp(target.dataset.caseId);
       return;
     }
 
@@ -1035,6 +1054,11 @@ async function syncSystemStatus() {
         folder: "",
         processedFolder: "",
         maxMessagesPerSync: 10,
+      },
+      emailDelivery: {
+        configured: false,
+        fromEmail: "",
+        fromName: "",
       },
     };
     state.auth.ready = true;
@@ -1708,7 +1732,7 @@ function setOutcomeFormValue(caseId, field, value) {
   }
 
   state.outcomes.forms[caseId] = {
-    ...(state.outcomes.forms[caseId] || { result: "", finalPrice: "", lossReason: "", competitorPrice: "", followUpDue: "" }),
+    ...(state.outcomes.forms[caseId] || { result: "", finalPrice: "", lossReason: "", competitorPrice: "", followUpDue: "", autoSendAt: "" }),
     [field]: value,
   };
 }
@@ -1789,6 +1813,71 @@ async function continueFollowUp(caseId) {
   if (window.location.hash === "#/dashboard") {
     const statsResponse = await fetchDashboardStats();
     state.dashboard.stats = statsResponse.stats;
+  }
+
+  mount();
+}
+
+async function sendFollowUpNow(caseId) {
+  if (!caseId) {
+    return;
+  }
+
+  const form = state.outcomes.forms[caseId] || {};
+  const followUpDue = form.followUpDue || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  state.error = "";
+  mount();
+
+  const response = await sendFollowUp({
+    caseId,
+    language: state.language,
+    followUpDue,
+    actor: state.auth.user?.email || "user",
+  });
+
+  syncUpdatedCase(response.case);
+
+  if (window.location.hash === "#/outcomes") {
+    const outcomesResponse = await fetchPendingOutcomes();
+    state.outcomes.items = outcomesResponse.items;
+    state.outcomes.completedItems = Array.isArray(outcomesResponse.completedItems) ? outcomesResponse.completedItems : [];
+    state.outcomes.summary = outcomesResponse.summary || null;
+  }
+
+  if (window.location.hash === "#/dashboard") {
+    const statsResponse = await fetchDashboardStats();
+    state.dashboard.stats = statsResponse.stats;
+  }
+
+  mount();
+}
+
+async function scheduleAutomaticFollowUp(caseId) {
+  if (!caseId) {
+    return;
+  }
+
+  const form = state.outcomes.forms[caseId] || {};
+  const autoSendAt = form.autoSendAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
+
+  state.error = "";
+  mount();
+
+  const response = await scheduleFollowUp({
+    caseId,
+    language: state.language,
+    sendAt: autoSendAt,
+    actor: state.auth.user?.email || "user",
+  });
+
+  syncUpdatedCase(response.case);
+
+  if (window.location.hash === "#/outcomes") {
+    const outcomesResponse = await fetchPendingOutcomes();
+    state.outcomes.items = outcomesResponse.items;
+    state.outcomes.completedItems = Array.isArray(outcomesResponse.completedItems) ? outcomesResponse.completedItems : [];
+    state.outcomes.summary = outcomesResponse.summary || null;
   }
 
   mount();

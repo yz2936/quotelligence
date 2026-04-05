@@ -468,6 +468,100 @@ test("outcomes route can move no-response deals back into negotiating with a new
   assert.equal(payload.case.quoteLifecycle.followUpDue, "2026-04-10");
 });
 
+test("follow-up schedule route saves automatic send settings on the case", async () => {
+  __resetStoreForTests();
+  await saveCase({
+    caseId: "QC-SCHEDULE-FOLLOWUP",
+    createdAt: "2026-03-29",
+    updatedAt: "2026-03-29",
+    customerName: "HeatEx",
+    projectName: "Requote",
+    quoteEstimate: {
+      currency: "USD",
+      total: 6400,
+      terms: {
+        buyerEmail: "buyer@example.com",
+      },
+      lineItems: [{ reviewFlag: "GREEN" }],
+    },
+    quoteLifecycle: {
+      status: "no_response",
+      outcome: "no_response",
+      recordedAt: "2026-03-30T10:00:00.000Z",
+    },
+  });
+
+  const response = await invokeRoute({
+    method: "POST",
+    url: "/api/follow-ups/schedule",
+    headers: { "content-type": "application/json" },
+    body: Buffer.from(
+      JSON.stringify({
+        caseId: "QC-SCHEDULE-FOLLOWUP",
+        language: "en",
+        sendAt: "2026-04-15T09:00",
+        actor: "eric@company.com",
+      })
+    ),
+  });
+
+  assert.equal(response.statusCode, 200);
+  const payload = JSON.parse(response.body);
+  assert.equal(payload.case.quoteLifecycle.autoFollowUp.enabled, true);
+  assert.equal(payload.case.quoteLifecycle.autoFollowUp.sendAt, "2026-04-15T09:00");
+});
+
+test("follow-up send route can send immediately through json transport", async () => {
+  __resetStoreForTests();
+  process.env.SMTP_JSON_TRANSPORT = "true";
+  process.env.SMTP_FROM_EMAIL = "sales@example.com";
+  process.env.SMTP_FROM_NAME = "Sales Team";
+
+  await saveCase({
+    caseId: "QC-SEND-FOLLOWUP",
+    createdAt: "2026-03-29",
+    updatedAt: "2026-03-29",
+    customerName: "HeatEx",
+    projectName: "Requote",
+    quoteEstimate: {
+      currency: "USD",
+      total: 6400,
+      terms: {
+        buyerEmail: "buyer@example.com",
+      },
+      lineItems: [{ reviewFlag: "GREEN" }],
+    },
+    quoteLifecycle: {
+      status: "no_response",
+      outcome: "no_response",
+      recordedAt: "2026-03-30T10:00:00.000Z",
+    },
+  });
+
+  const response = await invokeRoute({
+    method: "POST",
+    url: "/api/follow-ups/send",
+    headers: { "content-type": "application/json" },
+    body: Buffer.from(
+      JSON.stringify({
+        caseId: "QC-SEND-FOLLOWUP",
+        language: "en",
+        followUpDue: "2026-04-11",
+        actor: "eric@company.com",
+      })
+    ),
+  });
+
+  delete process.env.SMTP_JSON_TRANSPORT;
+  delete process.env.SMTP_FROM_EMAIL;
+  delete process.env.SMTP_FROM_NAME;
+
+  assert.equal(response.statusCode, 200);
+  const payload = JSON.parse(response.body);
+  assert.equal(payload.case.quoteLifecycle.status, "negotiating");
+  assert.equal(payload.case.quoteLifecycle.followUpDue, "2026-04-11");
+});
+
 test("quote approval route allows manually overridden red lines with final prices", async () => {
   __resetStoreForTests();
   await saveCase({

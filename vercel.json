@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/api/follow-ups/process-due",
+      "schedule": "0 * * * *"
+    }
+  ],
   "functions": {
     "api/[...path].js": {
       "maxDuration": 60

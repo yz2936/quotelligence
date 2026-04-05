@@ -27,6 +27,14 @@ Quotelligence is a browser-based RFQ intake and quote-workshop tool. It parses u
 - `IMAP_FOLDER`
 - `IMAP_PROCESSED_FOLDER`
 - `IMAP_MAX_MESSAGES_PER_SYNC`
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_SECURE`
+- `SMTP_USER`
+- `SMTP_PASSWORD`
+- `SMTP_FROM_EMAIL`
+- `SMTP_FROM_NAME`
+- `FOLLOW_UP_CRON_SECRET`
 - `PORT` for local development only
 
 ## Auth and storage
@@ -63,6 +71,30 @@ Recommended flow:
 
 If `IMAP_PROCESSED_FOLDER` is set, imported emails are moved there after a successful sync. Otherwise they are marked as read in the source folder.
 
+## Follow-up email automation
+
+Quotelligence can send negotiation follow-up emails directly from the backend and queue automatic follow-up sends for no-response deals.
+
+Set these delivery variables:
+
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_SECURE`
+- `SMTP_USER`
+- `SMTP_PASSWORD`
+- `SMTP_FROM_EMAIL`
+- `SMTP_FROM_NAME`
+
+Optional:
+
+- `FOLLOW_UP_CRON_SECRET` if you want to trigger `/api/follow-ups/process-due` manually outside Vercel Cron
+
+What the tool can do:
+
+1. Send a follow-up email immediately from the Negotiation section.
+2. Schedule an automatic follow-up send for a no-response deal.
+3. Run an hourly due-send processor on Vercel Cron through `/api/follow-ups/process-due`.
+
 ## Database reset
 
 To clear all stored cases and knowledge files from the connected Postgres database:
@@ -96,6 +128,14 @@ Vercel project settings must include:
 - `IMAP_FOLDER`
 - `IMAP_PROCESSED_FOLDER`
 - `IMAP_MAX_MESSAGES_PER_SYNC`
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_SECURE`
+- `SMTP_USER`
+- `SMTP_PASSWORD`
+- `SMTP_FROM_EMAIL`
+- `SMTP_FROM_NAME`
+- `FOLLOW_UP_CRON_SECRET`
 
 The runtime also accepts Vercel storage-injected equivalents such as:
 

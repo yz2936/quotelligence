@@ -2095,12 +2095,29 @@ function renderOutcomesPage(state) {
                                     ${
                                       item.outcome === "no_response"
                                         ? `
-                                          <div class="case-table__actions">
+                                          <div class="case-table__actions outcome-follow-up-actions">
                                             <input class="text-input text-input--table" type="date" value="${escapeAttribute(continueDate)}" data-outcome-field="followUpDue" data-case-id="${item.caseId}" />
                                             <button class="button button--small button--secondary" data-action="continue-follow-up" data-case-id="${item.caseId}">
                                               ${t(language, "continueFollowUp")}
                                             </button>
+                                            <button class="button button--small button--secondary ${state.system.emailDelivery?.configured ? "" : "button--disabled"}" data-action="send-follow-up-now" data-case-id="${item.caseId}" ${state.system.emailDelivery?.configured ? "" : "disabled"}>
+                                              ${t(language, "sendFollowUpNow")}
+                                            </button>
+                                            <input class="text-input text-input--table" type="datetime-local" value="${escapeAttribute((form.autoSendAt || "").slice(0, 16))}" data-outcome-field="autoSendAt" data-case-id="${item.caseId}" />
+                                            <button class="button button--small ${state.system.emailDelivery?.configured ? "" : "button--disabled"}" data-action="schedule-follow-up" data-case-id="${item.caseId}" ${state.system.emailDelivery?.configured ? "" : "disabled"}>
+                                              ${t(language, "scheduleAutoFollowUp")}
+                                            </button>
                                           </div>
+                                          ${
+                                            item.autoFollowUp?.enabled
+                                              ? `<p class="case-table__subtext">${escapeHtml(t(language, "autoFollowUpQueued"))}: ${escapeHtml(String(item.autoFollowUp.sendAt || "").slice(0, 16).replace("T", " "))}</p>`
+                                              : ""
+                                          }
+                                          ${
+                                            !state.system.emailDelivery?.configured
+                                              ? `<p class="case-table__subtext">${escapeHtml(t(language, "emailDeliveryNotConfigured"))}</p>`
+                                              : ""
+                                          }
                                         `
                                         : ""
                                     }

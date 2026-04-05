@@ -295,6 +295,30 @@ export async function logQuoteOutcome(payload) {
   return handleJson(response);
 }
 
+export async function sendFollowUp(payload) {
+  const response = await apiFetch("/api/follow-ups/send", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return handleJson(response);
+}
+
+export async function scheduleFollowUp(payload) {
+  const response = await apiFetch("/api/follow-ups/schedule", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return handleJson(response);
+}
+
 export async function fetchDashboardStats() {
   const response = await apiFetch("/api/dashboard/stats");
   return handleJson(response);

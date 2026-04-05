@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { getEmailIntakePublicConfig, syncEmailIntakeMailbox } from "./server/email-intake-service.js";
 import { loadEnv } from "./server/env.js";
 import { extractEmailPackageFromBuffer } from "./server/file-text-extractor.js";
+import { buildAutoFollowUpConfig, buildFollowUpEmailDraft, getEmailDeliveryPublicConfig, processDueAutoFollowUps, sendFollowUpEmail } from "./server/follow-up-service.js";
 import { buildCaseFromSubmission, deriveCaseStatus, deriveMissingInfo, getAllowedCaseStatuses } from "./server/intake-service.js";
 import { answerWorkspaceQuestion } from "./server/openai-client.js";
 import { buildComplianceTraceability, buildKnowledgeComparison, buildKnowledgeFilesFromUpload, deriveKnowledgeStatus, getKnowledgeCategories, normalizeStoredQuoteEstimate, summarizeKnowledgeFile } from "./server/knowledge-service.js";
@@ -52,7 +53,65 @@ export async function handleRequest(req, res) {
           storageDetails: storeHealth.details || "",
           supabase: getPublicSupabaseConfig(),
           emailIntake: getEmailIntakePublicConfig(),
+          emailDelivery: getEmailDeliveryPublicConfig(),
         },
+      });
+    }
+
+    if (url.pathname === "/api/follow-ups/process-due" && req.method === "GET") {
+      const secret = String(process.env.FOLLOW_UP_CRON_SECRET || "").trim();
+      const cronHeader = String(req.headers["x-vercel-cron"] || "").trim();
+      const requestSecret = String(url.searchParams.get("secret") || "").trim();
+
+      if (!(cronHeader || (secret && requestSecret === secret))) {
+        return sendJson(res, 401, { error: "Unauthorized follow-up processor request." });
+      }
+
+      const cases = await listCases();
+      const processed = await processDueAutoFollowUps({ cases, now: new Date() });
+
+      for (const entry of processed) {
+        const caseRecord = await getCase(entry.caseId);
+        if (!caseRecord) {
+          continue;
+        }
+
+        const autoFollowUp = caseRecord.quoteLifecycle?.autoFollowUp || {};
+        const updatedLifecycle = {
+          ...ensureQuoteLifecycle(caseRecord),
+          status: entry.ok ? "negotiating" : caseRecord.quoteLifecycle?.status || "sent",
+          autoFollowUp: {
+            ...autoFollowUp,
+            enabled: !entry.ok,
+            sentAt: entry.ok ? new Date().toISOString() : autoFollowUp.sentAt || "",
+            lastStatus: entry.ok ? "sent" : "failed",
+            lastError: entry.ok ? "" : entry.error || "Automatic follow-up send failed.",
+          },
+        };
+
+        await saveCase(
+          {
+            ...caseRecord,
+            quoteLifecycle: updatedLifecycle,
+            quoteHistory: appendQuoteHistory(caseRecord.quoteHistory, createQuoteHistoryEntry({
+              caseRecord: {
+                ...caseRecord,
+                quoteLifecycle: updatedLifecycle,
+              },
+              type: entry.ok ? "follow_up_sent" : "follow_up_failed",
+              title: entry.ok ? "Automatic follow-up sent" : "Automatic follow-up failed",
+              actor: "system",
+              now: new Date(),
+            })),
+            updatedAt: new Date().toISOString().slice(0, 10),
+          }
+        );
+      }
+
+      return sendJson(res, 200, {
+        processedCount: processed.length,
+        sentCount: processed.filter((entry) => entry.ok).length,
+        failedCount: processed.filter((entry) => !entry.ok).length,
       });
     }
 
@@ -813,6 +872,138 @@ export async function handleRequest(req, res) {
       });
     }
 
+    if (url.pathname === "/api/follow-ups/prepare" && req.method === "POST") {
+      const payload = await readJsonBody(req);
+      const caseId = String(payload.caseId || "");
+      const language = String(payload.language || "en");
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot, requestOwnerId, requestOwnerEmail);
+
+      if (!caseRecord) {
+        return sendJson(res, 404, { error: "Case not found" });
+      }
+
+      const draft = buildFollowUpEmailDraft({ caseRecord, language });
+      return sendJson(res, 200, { draft });
+    }
+
+    if (url.pathname === "/api/follow-ups/send" && req.method === "POST") {
+      const payload = await readJsonBody(req);
+      const caseId = String(payload.caseId || "");
+      const language = String(payload.language || "en");
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot, requestOwnerId, requestOwnerEmail);
+
+      if (!caseRecord) {
+        return sendJson(res, 404, { error: "Case not found" });
+      }
+
+      const draft = {
+        ...buildFollowUpEmailDraft({ caseRecord, language }),
+        ...(payload.draft || {}),
+      };
+      const sendResult = await sendFollowUpEmail({ caseRecord, draft, language });
+      const now = new Date();
+      const lifecycle = {
+        ...ensureQuoteLifecycle(caseRecord),
+        status: "negotiating",
+        followUpDue: String(payload.followUpDue || caseRecord.quoteLifecycle?.followUpDue || addDays(now, 3).toISOString().slice(0, 10)),
+        autoFollowUp: {
+          enabled: false,
+          sentAt: now.toISOString(),
+          sendAt: "",
+          to: draft.to || "",
+          cc: draft.cc || "",
+          subject: draft.subject || "",
+          body: draft.body || "",
+          includeQuotePdf: draft.includeQuotePdf !== false,
+          scheduledBy: String(payload.actor || "user"),
+          scheduledAt: now.toISOString(),
+          lastStatus: "sent",
+          lastError: "",
+        },
+      };
+
+      const updated = syncCaseWorkflow({
+        previousCase: caseRecord,
+        actor: String(payload.actor || "user"),
+        source: "follow_up_sent",
+        now,
+        nextCase: {
+          ...caseRecord,
+          quoteLifecycle: lifecycle,
+          quoteHistory: appendQuoteHistory(caseRecord.quoteHistory, createQuoteHistoryEntry({
+            caseRecord: {
+              ...caseRecord,
+              quoteLifecycle: lifecycle,
+            },
+            type: "follow_up_sent",
+            title: "Follow-up email sent",
+            actor: String(payload.actor || "user"),
+            now,
+          })),
+          updatedAt: now.toISOString().slice(0, 10),
+        },
+      });
+
+      await saveCase(updated, requestOwnerId);
+      return sendJson(res, 200, { case: updated, sendResult, draft });
+    }
+
+    if (url.pathname === "/api/follow-ups/schedule" && req.method === "POST") {
+      const payload = await readJsonBody(req);
+      const caseId = String(payload.caseId || "");
+      const language = String(payload.language || "en");
+      const sendAt = String(payload.sendAt || "").trim();
+      const caseRecord = await resolveCaseRecord(caseId, payload.caseSnapshot, requestOwnerId, requestOwnerEmail);
+
+      if (!caseRecord) {
+        return sendJson(res, 404, { error: "Case not found" });
+      }
+
+      if (!sendAt) {
+        return sendJson(res, 422, { error: "Automatic follow-up send time is required." });
+      }
+
+      const draft = {
+        ...buildFollowUpEmailDraft({ caseRecord, language }),
+        ...(payload.draft || {}),
+      };
+      const now = new Date();
+      const lifecycle = {
+        ...ensureQuoteLifecycle(caseRecord),
+        autoFollowUp: buildAutoFollowUpConfig({
+          caseRecord,
+          draft,
+          sendAt,
+          actor: String(payload.actor || "user"),
+        }),
+      };
+
+      const updated = syncCaseWorkflow({
+        previousCase: caseRecord,
+        actor: String(payload.actor || "user"),
+        source: "follow_up_scheduled",
+        now,
+        nextCase: {
+          ...caseRecord,
+          quoteLifecycle: lifecycle,
+          quoteHistory: appendQuoteHistory(caseRecord.quoteHistory, createQuoteHistoryEntry({
+            caseRecord: {
+              ...caseRecord,
+              quoteLifecycle: lifecycle,
+            },
+            type: "follow_up_scheduled",
+            title: "Automatic follow-up scheduled",
+            actor: String(payload.actor || "user"),
+            now,
+          })),
+          updatedAt: now.toISOString().slice(0, 10),
+        },
+      });
+
+      await saveCase(updated, requestOwnerId);
+      return sendJson(res, 200, { case: updated, draft });
+    }
+
     if (url.pathname === "/api/outcomes" && req.method === "POST") {
       const payload = await readJsonBody(req);
       const caseId = String(payload.caseId || "");
@@ -1127,6 +1318,7 @@ function ensureQuoteLifecycle(caseRecord) {
     totalValue: Number.isFinite(Number(lifecycle.totalValue)) ? Number(lifecycle.totalValue) : Number(caseRecord?.quoteEstimate?.total || 0),
     currency: lifecycle.currency || caseRecord?.quoteEstimate?.currency || "USD",
     flagCounts: lifecycle.flagCounts || countQuoteFlags(caseRecord?.quoteEstimate),
+    autoFollowUp: lifecycle.autoFollowUp || null,
   };
 }
 
@@ -1191,6 +1383,7 @@ function buildPendingOutcomes(cases, now = new Date()) {
         status: lifecycle.status,
         totalValue: lifecycle.totalValue,
         currency: lifecycle.currency || "USD",
+        autoFollowUp: lifecycle.autoFollowUp || null,
       };
     })
     .sort((a, b) => {
@@ -1224,6 +1417,7 @@ function buildCompletedOutcomes(cases) {
         competitorPrice: lifecycle.competitorPrice,
         totalValue: lifecycle.totalValue,
         currency: lifecycle.currency || "USD",
+        autoFollowUp: lifecycle.autoFollowUp || null,
       };
     })
     .sort((a, b) => String(b.recordedAt || "").localeCompare(String(a.recordedAt || "")));
