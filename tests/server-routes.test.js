@@ -155,6 +155,59 @@ test("complaints routes store and return complaint records", async () => {
   assert.equal(JSON.parse(detailResponse.body).complaint.complaintTitle, "Damaged shipment");
 });
 
+test("complaints route expands .eml uploads into full email context and extracted attachments", async () => {
+  __resetStoreForTests();
+
+  const eml = [
+    "From: lisa.lee@example.com",
+    "To: service@brava-steel.com",
+    "Subject: Bent tubes from March shipment",
+    "MIME-Version: 1.0",
+    'Content-Type: multipart/mixed; boundary="complaint-boundary"',
+    "",
+    "--complaint-boundary",
+    'Content-Type: text/plain; charset="utf-8"',
+    "",
+    "We found bent tubes in the latest shipment. Please investigate the lot and advise corrective action.",
+    "",
+    "--complaint-boundary",
+    'Content-Type: text/plain; name="notes.txt"',
+    "Content-Transfer-Encoding: base64",
+    'Content-Disposition: attachment; filename="notes.txt"',
+    "",
+    Buffer.from("Internal inspection note: 12 tubes bent near bundle edge.").toString("base64"),
+    "--complaint-boundary--",
+    "",
+  ].join("\r\n");
+
+  const formData = new FormData();
+  formData.append("complaint_title", "");
+  formData.append("customer_name", "HeatEx");
+  formData.append("email_text", "");
+  formData.append("language", "en");
+  formData.append("complaint_files", new File([eml], "complaint.eml", { type: "message/rfc822" }));
+
+  const request = new Request("http://localhost/api/complaints", {
+    method: "POST",
+    body: formData,
+  });
+
+  const response = await invokeRoute({
+    method: "POST",
+    url: "/api/complaints",
+    headers: Object.fromEntries(request.headers.entries()),
+    body: Buffer.from(await request.arrayBuffer()),
+  });
+
+  assert.equal(response.statusCode, 201);
+  const complaint = JSON.parse(response.body).complaint;
+  assert.match(complaint.complaintTitle, /Bent tubes from March shipment/);
+  assert.match(complaint.emailText, /Subject: Bent tubes from March shipment/);
+  assert.match(complaint.emailText, /Please investigate the lot/);
+  assert.equal(complaint.attachments.length, 1);
+  assert.equal(complaint.attachments[0].name, "notes.txt");
+});
+
 test("quote approval route blocks red lines without final prices", async () => {
   __resetStoreForTests();
   await saveCase({

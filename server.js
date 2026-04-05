@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { getEmailIntakePublicConfig, syncEmailIntakeMailbox } from "./server/email-intake-service.js";
 import { loadEnv } from "./server/env.js";
+import { extractEmailPackageFromBuffer } from "./server/file-text-extractor.js";
 import { buildCaseFromSubmission, deriveCaseStatus, deriveMissingInfo, getAllowedCaseStatuses } from "./server/intake-service.js";
 import { answerWorkspaceQuestion } from "./server/openai-client.js";
 import { buildComplianceTraceability, buildKnowledgeComparison, buildKnowledgeFilesFromUpload, deriveKnowledgeStatus, getKnowledgeCategories, normalizeStoredQuoteEstimate, summarizeKnowledgeFile } from "./server/knowledge-service.js";
@@ -138,17 +139,21 @@ export async function handleRequest(req, res) {
       const files = formData
         .getAll("complaint_files")
         .filter((value) => typeof value === "object" && value !== null && "arrayBuffer" in value);
+      const expandedComplaintInput = await expandComplaintSubmissionFiles({
+        files,
+        emailText,
+      });
 
       const attachments = await buildKnowledgeFilesFromUpload({
-        files,
+        files: expandedComplaintInput.attachmentFiles,
         language,
         now: new Date(),
       });
       const complaint = applyRecordOwnership(
         buildComplaintRecord({
-          complaintTitle,
+          complaintTitle: complaintTitle || expandedComplaintInput.subject,
           customerName,
-          emailText,
+          emailText: expandedComplaintInput.emailText,
           attachments: attachments.map((file) => applyRecordOwnership(file, requestOwnerId, requestOwnerEmail)),
           language,
           now: new Date(),
@@ -969,6 +974,56 @@ function buildComplaintRecord({ complaintTitle, customerName, emailText, attachm
     summary:
       summarySource.replace(/\s+/g, " ").trim().slice(0, 240) ||
       (language === "zh" ? "已记录投诉内容，等待处理。" : "Complaint captured and ready for review."),
+  };
+}
+
+async function expandComplaintSubmissionFiles({ files, emailText }) {
+  const attachmentFiles = [];
+  const emailBodies = [String(emailText || "").trim()].filter(Boolean);
+  const subjects = [];
+
+  for (const file of files || []) {
+    const name = String(file.name || "uploaded-file");
+    const isEml = /\.eml$/i.test(name) || String(file.type || "").toLowerCase() === "message/rfc822";
+
+    if (!isEml) {
+      attachmentFiles.push(file);
+      continue;
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const emailPackage = extractEmailPackageFromBuffer({ fileName: name, buffer });
+
+    if (emailPackage.subject) {
+      subjects.push(emailPackage.subject);
+    }
+
+    if (emailPackage.bodyText) {
+      emailBodies.unshift(emailPackage.bodyText);
+    }
+
+    for (const attachment of emailPackage.attachments || []) {
+      attachmentFiles.push(createBufferBackedFile(attachment));
+    }
+  }
+
+  return {
+    subject: subjects[0] || "",
+    emailText: emailBodies.join("\n\n").trim(),
+    attachmentFiles,
+  };
+}
+
+function createBufferBackedFile(attachment) {
+  return {
+    name: attachment.name || "email-attachment",
+    type: attachment.contentType || "",
+    async arrayBuffer() {
+      return attachment.buffer.buffer.slice(
+        attachment.buffer.byteOffset,
+        attachment.buffer.byteOffset + attachment.buffer.byteLength
+      );
+    },
   };
 }
 
