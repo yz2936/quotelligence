@@ -130,6 +130,23 @@ export async function queryWorkspace(question, language, source = "all") {
   return handleJson(response);
 }
 
+export async function fetchAnalystMessages() {
+  const response = await apiFetch("/api/analyst/messages");
+  return handleJson(response);
+}
+
+export async function saveAnalystMessages(messages) {
+  const response = await apiFetch("/api/analyst/messages", {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ messages }),
+  });
+
+  return handleJson(response);
+}
+
 export async function fetchKnowledgeBase() {
   const response = await apiFetch("/api/knowledge");
   return handleJson(response);

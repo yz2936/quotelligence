@@ -450,6 +450,80 @@ export async function deleteKnowledgeFile(knowledgeFileId, ownerUserId = "") {
   return true;
 }
 
+export async function getAnalystThread(ownerUserId = "") {
+  if (shouldUseDatabase()) {
+    await ensureDatabaseSchema();
+    const scope = normalizeOwnerScope(ownerUserId);
+    const result = scope
+      ? await getPool().query(
+          `
+            SELECT data
+            FROM analyst_threads
+            WHERE owner_user_id = $1
+            LIMIT 1
+          `,
+          [scope]
+        )
+      : await getPool().query(
+          `
+            SELECT data
+            FROM analyst_threads
+            ORDER BY stored_at DESC
+            LIMIT 1
+          `
+        );
+
+    return result.rowCount ? hydrateJsonRecord(result.rows[0].data) : { messages: [] };
+  }
+
+  const store = loadFileStore();
+  const thread = store.analystThreads.find((entry) => matchesOwnerScope(entry, ownerUserId));
+  return thread || { messages: [] };
+}
+
+export async function saveAnalystThread(threadRecord, ownerUserId = "") {
+  const recordToSave = withOwnerScope(
+    {
+      messages: Array.isArray(threadRecord?.messages) ? threadRecord.messages : [],
+      updatedAt: String(threadRecord?.updatedAt || new Date().toISOString()),
+    },
+    ownerUserId
+  );
+
+  if (shouldUseDatabase()) {
+    await ensureDatabaseSchema();
+    await getPool().query(
+      `
+        INSERT INTO analyst_threads (owner_user_id, updated_at, data)
+        VALUES ($1, $2, $3::jsonb)
+        ON CONFLICT (owner_user_id) DO UPDATE
+        SET updated_at = EXCLUDED.updated_at,
+            data = EXCLUDED.data,
+            stored_at = NOW()
+      `,
+      [
+        String(recordToSave.ownerUserId || ""),
+        String(recordToSave.updatedAt || ""),
+        JSON.stringify(recordToSave),
+      ]
+    );
+
+    return recordToSave;
+  }
+
+  const store = loadFileStore();
+  const existingIndex = store.analystThreads.findIndex((entry) => matchesOwnerScope(entry, ownerUserId));
+
+  if (existingIndex >= 0) {
+    store.analystThreads[existingIndex] = recordToSave;
+  } else {
+    store.analystThreads.push(recordToSave);
+  }
+
+  writeFileStore(store);
+  return recordToSave;
+}
+
 export function getStoreMode() {
   return shouldUseDatabase() ? "database" : "file";
 }
@@ -532,6 +606,16 @@ async function ensureDatabaseSchema() {
         `);
         await client.query(`ALTER TABLE complaints ADD COLUMN IF NOT EXISTS owner_user_id TEXT`);
         await client.query(`CREATE INDEX IF NOT EXISTS complaints_owner_user_id_idx ON complaints (owner_user_id)`);
+
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS analyst_threads (
+            owner_user_id TEXT PRIMARY KEY,
+            updated_at TEXT,
+            data JSONB NOT NULL,
+            stored_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `);
+        await client.query(`ALTER TABLE analyst_threads ADD COLUMN IF NOT EXISTS owner_user_id TEXT`);
       } finally {
         client.release();
       }
@@ -630,12 +714,14 @@ function loadFileStore() {
       cases: Array.isArray(parsed?.cases) ? parsed.cases : [],
       complaints: Array.isArray(parsed?.complaints) ? parsed.complaints : [],
       knowledgeFiles: Array.isArray(parsed?.knowledgeFiles) ? parsed.knowledgeFiles : [],
+      analystThreads: Array.isArray(parsed?.analystThreads) ? parsed.analystThreads : [],
     };
   } catch {
     return {
       cases: [],
       complaints: [],
       knowledgeFiles: [],
+      analystThreads: [],
     };
   }
 }

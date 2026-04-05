@@ -9,6 +9,7 @@ import {
   deleteCase,
   deleteComplaint,
   deleteKnowledgeFile,
+  getAnalystThread,
   getCase,
   getComplaint,
   getKnowledgeFile,
@@ -16,6 +17,7 @@ import {
   listCases,
   listComplaints,
   listKnowledgeFiles,
+  saveAnalystThread,
   saveCase,
   saveComplaint,
   saveKnowledgeFile,
@@ -65,6 +67,29 @@ test("store persists complaints alongside other file-backed data", async () => {
 
   const persisted = JSON.parse(fs.readFileSync(storePath, "utf8"));
   assert.equal(persisted.complaints.length, 1);
+});
+
+test("store persists analyst thread history per owner", async () => {
+  const storePath = path.join(os.tmpdir(), `quotelligence-store-test-${Date.now()}-analyst.json`);
+  __resetStoreForTests(storePath);
+
+  await saveAnalystThread(
+    {
+      messages: [
+        {
+          id: "msg-1",
+          role: "user",
+          text: "Summarize the latest complaint trend.",
+        },
+      ],
+      updatedAt: "2026-04-04T12:00:00.000Z",
+    },
+    "user-1"
+  );
+
+  const persisted = await getAnalystThread("user-1");
+  assert.equal(persisted.messages.length, 1);
+  assert.equal(persisted.messages[0].text, "Summarize the latest complaint trend.");
 });
 
 test("store deletes complaints from file-backed storage", async () => {

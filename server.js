@@ -10,7 +10,7 @@ import { buildCaseFromSubmission, deriveCaseStatus, deriveMissingInfo, getAllowe
 import { answerWorkspaceQuestion } from "./server/openai-client.js";
 import { buildComplianceTraceability, buildKnowledgeComparison, buildKnowledgeFilesFromUpload, deriveKnowledgeStatus, getKnowledgeCategories, normalizeStoredQuoteEstimate, summarizeKnowledgeFile } from "./server/knowledge-service.js";
 import { buildQuoteDraft, buildQuoteEmail, buildQuoteDocument } from "./server/quote-service.js";
-import { deleteCase, deleteComplaint, deleteKnowledgeFile, getCase, getComplaint, getKnowledgeFile, getStoreHealth, getStoreMode, listCases, listComplaints, listKnowledgeFiles, saveCase, saveComplaint, saveKnowledgeFile } from "./server/store.js";
+import { deleteCase, deleteComplaint, deleteKnowledgeFile, getAnalystThread, getCase, getComplaint, getKnowledgeFile, getStoreHealth, getStoreMode, listCases, listComplaints, listKnowledgeFiles, saveAnalystThread, saveCase, saveComplaint, saveKnowledgeFile } from "./server/store.js";
 import { authenticateRequest, getPublicSupabaseConfig } from "./server/supabase-auth.js";
 import { applyCheckpointDecision, syncCaseWorkflow } from "./server/workflow-engine.js";
 
@@ -396,6 +396,29 @@ export async function handleRequest(req, res) {
       });
 
       return sendJson(res, 200, { answer });
+    }
+
+    if (url.pathname === "/api/analyst/messages" && req.method === "GET") {
+      const thread = await getAnalystThread(requestOwnerId);
+      return sendJson(res, 200, {
+        messages: Array.isArray(thread.messages) ? thread.messages : [],
+      });
+    }
+
+    if (url.pathname === "/api/analyst/messages" && req.method === "PUT") {
+      const payload = await readJsonBody(req);
+      const messages = Array.isArray(payload.messages) ? payload.messages : [];
+      const thread = await saveAnalystThread(
+        {
+          messages,
+          updatedAt: new Date().toISOString(),
+        },
+        requestOwnerId
+      );
+
+      return sendJson(res, 200, {
+        messages: thread.messages,
+      });
     }
 
     if (url.pathname === "/api/knowledge/compare" && req.method === "POST") {

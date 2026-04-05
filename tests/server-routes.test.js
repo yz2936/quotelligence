@@ -186,6 +186,40 @@ test("delete complaint route removes a stored complaint record", async () => {
   assert.equal(JSON.parse(deleteResponse.body).deletedComplaintId, complaintId);
 });
 
+test("analyst messages route stores and returns persisted chat history", async () => {
+  __resetStoreForTests();
+
+  const saveResponse = await invokeRoute({
+    method: "PUT",
+    url: "/api/analyst/messages",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: Buffer.from(
+      JSON.stringify({
+        messages: [
+          {
+            id: "msg-1",
+            role: "user",
+            text: "Summarize the active quote risks.",
+            createdAt: "2026-04-04T12:00:00.000Z",
+          },
+        ],
+      })
+    ),
+  });
+
+  assert.equal(saveResponse.statusCode, 200);
+
+  const loadResponse = await invokeRoute({
+    method: "GET",
+    url: "/api/analyst/messages",
+  });
+
+  assert.equal(loadResponse.statusCode, 200);
+  assert.equal(JSON.parse(loadResponse.body).messages.length, 1);
+});
+
 test("complaints route expands .eml uploads into full email context and extracted attachments", async () => {
   __resetStoreForTests();
 

@@ -7,6 +7,7 @@ import {
   deleteCase as deleteCaseRequest,
   deleteComplaint as deleteComplaintRequest,
   deleteKnowledgeFile as deleteKnowledgeFileRequest,
+  fetchAnalystMessages,
   fetchComplaint,
   fetchComplaints,
   fetchDashboardStats,
@@ -29,6 +30,7 @@ import {
   updateCase,
   uploadKnowledgeFiles,
   runComplianceCheck,
+  saveAnalystMessages,
 } from "./api.js";
 import { confidenceLabel, t } from "./i18n.js";
 import {
@@ -42,7 +44,10 @@ import {
 
 const root = document.querySelector("#app");
 const storedLanguage = globalThis.localStorage?.getItem("quotecase_language");
+const storedAnalystWidth = Number(globalThis.localStorage?.getItem("quotelligence_analyst_width") || "");
 const CASE_CACHE_KEY = "quotelligence_case_cache_v2";
+const ANALYST_MIN_WIDTH = 360;
+const ANALYST_MAX_WIDTH = 760;
 const DEFAULT_ALLOWED_STATUSES = [
   "New",
   "Parsing",
@@ -125,7 +130,8 @@ const state = {
     source: "all",
     loading: false,
     messages: [],
-    activeTrace: null,
+    width: Number.isFinite(storedAnalystWidth) && storedAnalystWidth >= ANALYST_MIN_WIDTH ? storedAnalystWidth : 388,
+    pendingMessageId: "",
   },
   knowledge: {
     files: [],
@@ -191,7 +197,14 @@ function mount(options = {}) {
   if (viewState) {
     restoreViewState(viewState);
   }
+
+  if (shouldAutoScrollAnalystThread) {
+    syncAnalystThreadScroll();
+    shouldAutoScrollAnalystThread = false;
+  }
 }
+
+let shouldAutoScrollAnalystThread = false;
 
 window.addEventListener("hashchange", async () => {
   if (shouldBlockProtectedRoutes()) {
@@ -561,6 +574,33 @@ root.addEventListener("click", async (event) => {
   }
 });
 
+root.addEventListener("mousedown", (event) => {
+  const handle = event.target.closest("[data-analyst-resize-handle]");
+
+  if (!handle) {
+    return;
+  }
+
+  event.preventDefault();
+  const startX = event.clientX;
+  const startWidth = Number(state.analyst.width || 388);
+
+  const onMove = (moveEvent) => {
+    const delta = startX - moveEvent.clientX;
+    state.analyst.width = clampAnalystWidth(startWidth + delta);
+    mount();
+  };
+
+  const onUp = () => {
+    globalThis.localStorage?.setItem("quotelligence_analyst_width", String(state.analyst.width));
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  };
+
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+});
+
 root.addEventListener("change", async (event) => {
   const target = event.target;
 
@@ -860,6 +900,11 @@ await bootstrap();
 
 async function syncRouteData() {
   await syncSystemStatus();
+
+  if (state.auth.user) {
+    const analystResponse = await fetchAnalystMessages();
+    state.analyst.messages = Array.isArray(analystResponse.messages) ? analystResponse.messages : [];
+  }
 
   const needsCaseData =
     window.location.hash === "#/case" ||
@@ -1793,30 +1838,70 @@ async function submitWorkspaceQuestion() {
     return;
   }
 
-  state.analyst.loading = true;
-  state.analyst.activeTrace = createPendingAnalystTrace(state.analyst.source, state.language);
-  state.error = "";
-  state.analyst.messages.unshift({
+  const pendingMessageId = `analyst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const questionMessage = {
+    id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     role: "user",
     text: question,
-  });
+    createdAt: new Date().toISOString(),
+  };
+  const pendingAssistantMessage = {
+    id: pendingMessageId,
+    role: "assistant",
+    text: "",
+    meta: "",
+    createdAt: new Date().toISOString(),
+    pending: true,
+    trace: createPendingAnalystTrace(state.analyst.source, state.language),
+  };
+
+  state.analyst.loading = true;
+  state.analyst.pendingMessageId = pendingMessageId;
+  state.error = "";
+  state.analyst.messages = [...state.analyst.messages, questionMessage, pendingAssistantMessage];
+  shouldAutoScrollAnalystThread = true;
   mount();
 
   const progressPromise = runAnalystProgressSequence();
 
   try {
     const response = await queryWorkspace(question, state.language, state.analyst.source);
-    state.analyst.messages.unshift({
-      role: "assistant",
-      text: response.answer.answer,
-      meta: `${confidenceLabel(state.language, response.answer.confidence)} • ${response.answer.basis} • ${formatAnalystSourceLabel(state.analyst.source, state.language)}`,
-      trace: finalizeAnalystTrace(response.answer.trace, state.language),
-    });
+    state.analyst.messages = state.analyst.messages.map((message) =>
+      message.id === pendingMessageId
+        ? {
+            ...message,
+            pending: false,
+            text: response.answer.answer,
+            meta: `${confidenceLabel(state.language, response.answer.confidence)} • ${response.answer.basis} • ${formatAnalystSourceLabel(state.analyst.source, state.language)}`,
+            trace: finalizeAnalystTrace(response.answer.trace, state.language),
+          }
+        : message
+    );
     state.analyst.question = "";
+    await persistAnalystMessages();
+    shouldAutoScrollAnalystThread = true;
+  } catch (error) {
+    state.analyst.messages = state.analyst.messages.map((message) =>
+      message.id === pendingMessageId
+        ? {
+            ...message,
+            pending: false,
+            text:
+              state.language === "zh"
+                ? "分析失败。请重试，或缩小数据源范围后再提问。"
+                : "Analysis failed. Retry once, or narrow the data source and ask again.",
+            meta: error instanceof Error ? error.message : String(error),
+            trace: finalizeAnalystTrace(message.trace, state.language),
+          }
+        : message
+    );
+    await persistAnalystMessages();
+    throw error;
   } finally {
     await progressPromise.catch(() => {});
     state.analyst.loading = false;
-    state.analyst.activeTrace = null;
+    state.analyst.pendingMessageId = "";
+    shouldAutoScrollAnalystThread = true;
     mount();
   }
 }
@@ -1858,14 +1943,14 @@ async function runAnalystProgressSequence() {
   ];
 
   for (const step of steps) {
-    if (!state.analyst.loading || !state.analyst.activeTrace) {
+    if (!state.analyst.loading || !state.analyst.pendingMessageId) {
       return;
     }
 
     markAnalystTraceStep(step.id, "running", step.detail);
     await new Promise((resolve) => window.setTimeout(resolve, step.delay));
 
-    if (!state.analyst.loading || !state.analyst.activeTrace) {
+    if (!state.analyst.loading || !state.analyst.pendingMessageId) {
       return;
     }
 
@@ -1907,22 +1992,30 @@ function createPendingAnalystTrace(source, language) {
 }
 
 function markAnalystTraceStep(stepId, status, detail = "") {
-  if (!state.analyst.activeTrace) {
+  if (!state.analyst.pendingMessageId) {
     return;
   }
 
-  state.analyst.activeTrace = {
-    ...state.analyst.activeTrace,
-    steps: state.analyst.activeTrace.steps.map((step) =>
-      step.id === stepId
-        ? {
-            ...step,
-            status,
-            detail: detail || step.detail,
-          }
-        : step
-    ),
-  };
+  state.analyst.messages = state.analyst.messages.map((message) =>
+    message.id === state.analyst.pendingMessageId
+      ? {
+          ...message,
+          trace: {
+            ...message.trace,
+            steps: (message.trace?.steps || []).map((step) =>
+              step.id === stepId
+                ? {
+                    ...step,
+                    status,
+                    detail: detail || step.detail,
+                  }
+                : step
+            ),
+          },
+        }
+      : message
+  );
+  shouldAutoScrollAnalystThread = true;
   mount();
 }
 
@@ -1955,6 +2048,36 @@ function formatAnalystSourceLabel(source, language) {
   }
 
   return t(language, "analystSourceAll");
+}
+
+async function persistAnalystMessages() {
+  const persistedMessages = state.analyst.messages
+    .filter((message) => !message.pending)
+    .map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.text,
+      meta: message.meta || "",
+      createdAt: message.createdAt || new Date().toISOString(),
+      trace: message.trace || null,
+    }));
+
+  const response = await saveAnalystMessages(persistedMessages);
+  state.analyst.messages = Array.isArray(response.messages) ? response.messages : persistedMessages;
+}
+
+function syncAnalystThreadScroll() {
+  const thread = root.querySelector(".analyst-thread");
+
+  if (!thread) {
+    return;
+  }
+
+  thread.scrollTop = thread.scrollHeight;
+}
+
+function clampAnalystWidth(value) {
+  return Math.max(ANALYST_MIN_WIDTH, Math.min(ANALYST_MAX_WIDTH, Number(value || 388)));
 }
 
 function resetIdleIntakeMessage() {
@@ -2441,6 +2564,8 @@ function clearWorkspaceState() {
   state.outcomes.items = [];
   state.outcomes.forms = {};
   state.dashboard.stats = null;
+  state.analyst.messages = [];
+  state.analyst.pendingMessageId = "";
 }
 
 function shouldBlockProtectedRoutes() {

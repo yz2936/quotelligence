@@ -668,7 +668,8 @@ function renderProductTable(productItems, language) {
 function renderAnalystWindow(state) {
   const language = state.language;
   return `
-    <aside class="analyst-window analyst-window--expanded">
+    <aside class="analyst-window analyst-window--expanded" style="width:${Number(state.analyst.width || 388)}px">
+      <div class="analyst-window__resize-handle" data-analyst-resize-handle></div>
       <div class="analyst-window__header">
         <div class="analyst-window__title-group">
           <div class="analyst-window__icon">
@@ -681,16 +682,13 @@ function renderAnalystWindow(state) {
         <button class="button button--secondary analyst-window__toggle" data-action="toggle-analyst">${t(language, "collapseAnalyst")}</button>
       </div>
       <div class="analyst-thread">
-        ${state.analyst.loading && state.analyst.activeTrace ? renderAnalystTrace(state.analyst.activeTrace, language, true) : ""}
         ${state.analyst.messages.length
           ? state.analyst.messages
-              .slice()
-              .reverse()
               .map(
                 (message) => `
                   <article class="analyst-message analyst-message--${message.role}">
                     ${renderAnalystMessageContent(message.text)}
-                    ${message.trace ? renderAnalystTrace(message.trace, language, false) : ""}
+                    ${message.trace ? renderAnalystTrace(message.trace, language, Boolean(message.pending)) : ""}
                     ${message.meta ? `<p class="muted analyst-message__meta">${message.meta}</p>` : ""}
                   </article>
                 `

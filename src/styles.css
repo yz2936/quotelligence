@@ -1253,6 +1253,28 @@ td.case-table__actions .button { display: inline-flex; }
   transition: width var(--t) var(--ease), opacity var(--t);
 }
 
+.analyst-window__resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -6px;
+  width: 12px;
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.analyst-window__resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 72px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.35);
+}
+
 /* Top gradient accent line */
 .analyst-window::before {
   content: '';
@@ -1337,6 +1359,10 @@ td.case-table__actions .button { display: inline-flex; }
   font-size: 13.5px;
   line-height: 1.5;
   animation: msgIn 180ms var(--ease) forwards;
+}
+
+.analyst-message--assistant:empty {
+  display: none;
 }
 
 @keyframes msgIn {
