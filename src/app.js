@@ -7,7 +7,6 @@ import {
 } from "./ui.js";
 
 const routes = {
-  "#/landing": renderLandingPage,
   "#/intake": renderIntakeScreen,
   "#/case": renderCaseWorkspace,
   "#/knowledge": renderKnowledgeComparison,
@@ -56,7 +55,6 @@ export function renderApp(root, state, currentHash) {
           <p>${t(language, "appSubtitle")}</p>
         </div>
         <nav class="sidebar__nav">
-          ${renderNavLink("#/landing", t(language, "landingNav"), activeRoute, svgLandingIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/dashboard", t(language, "dashboardNav"), activeRoute, svgDashboardIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/intake", t(language, "chatIntake"), activeRoute, svgIntakeIcon(), state.sidebarCollapsed)}
           ${renderNavLink("#/case", t(language, "caseWorkspace"), activeRoute, svgCaseIcon(), state.sidebarCollapsed)}

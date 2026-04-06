@@ -988,7 +988,6 @@ async function syncRouteData() {
   }
 
   const needsCaseData =
-    window.location.hash === "#/landing" ||
     window.location.hash === "#/case" ||
     window.location.hash === "#/knowledge" ||
     window.location.hash === "#/complaints" ||
@@ -1011,13 +1010,13 @@ async function syncRouteData() {
       state.allowedStatuses = allowedStatuses;
       reconcileSelectedCases();
 
-      if (window.location.hash === "#/landing" || window.location.hash === "#/knowledge" || window.location.hash === "#/quote") {
+      if (window.location.hash === "#/knowledge" || window.location.hash === "#/quote") {
         const knowledgeResponse = await fetchKnowledgeBase();
         state.knowledge.files = knowledgeResponse.knowledgeFiles;
         state.knowledge.categories = knowledgeResponse.categories;
       }
 
-      if (window.location.hash === "#/landing" || window.location.hash === "#/complaints") {
+      if (window.location.hash === "#/complaints") {
         const response = await fetchComplaints();
         state.complaints.items = response.complaints;
 
@@ -1041,7 +1040,7 @@ async function syncRouteData() {
         state.outcomes.loading = false;
       }
 
-      if (window.location.hash === "#/landing" || window.location.hash === "#/dashboard") {
+      if (window.location.hash === "#/dashboard") {
         state.dashboard.loading = true;
         const response = await fetchDashboardStats();
         state.dashboard.stats = response.stats;
@@ -3001,7 +3000,7 @@ async function bootstrap() {
     await syncSystemStatus();
     if (state.auth.user) {
       await syncRouteData();
-    } else if (state.auth.configured) {
+    } else if (!window.location.hash) {
       window.location.hash = "#/login";
     }
   } catch (error) {

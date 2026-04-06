@@ -1940,7 +1940,7 @@ async function readJsonBody(req) {
 }
 
 async function serveStatic(requestPath, res) {
-  const normalizedPath = requestPath === "/" ? "/index.html" : requestPath;
+  const normalizedPath = normalizeStaticPath(requestPath);
   const targetPath = path.join(__dirname, normalizedPath);
 
   if (!targetPath.startsWith(__dirname)) {
@@ -1955,13 +1955,26 @@ async function serveStatic(requestPath, res) {
     });
     res.end(file);
   } catch {
-    const indexFile = await fs.readFile(path.join(__dirname, "index.html"));
+    const fallbackPath = requestPath.startsWith("/app") ? "index.html" : "landing.html";
+    const indexFile = await fs.readFile(path.join(__dirname, fallbackPath));
     res.writeHead(200, {
       "cache-control": "no-store, max-age=0",
       "content-type": "text/html; charset=utf-8",
     });
     res.end(indexFile);
   }
+}
+
+function normalizeStaticPath(requestPath) {
+  if (requestPath === "/") {
+    return "/landing.html";
+  }
+
+  if (requestPath === "/app" || requestPath === "/app/") {
+    return "/index.html";
+  }
+
+  return requestPath;
 }
 
 function sendJson(res, statusCode, payload) {
