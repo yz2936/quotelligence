@@ -2996,6 +2996,11 @@ function clearCaseCache() {
 }
 
 async function bootstrap() {
+  if (shouldRedirectToStandaloneLanding()) {
+    window.location.replace("/landing.html");
+    return;
+  }
+
   try {
     await syncSystemStatus();
     if (state.auth.user) {
@@ -3042,6 +3047,11 @@ async function syncSupabaseAuthClient(supabaseConfig) {
 
       if (!session) {
         clearWorkspaceState();
+        if (shouldRedirectToStandaloneLanding()) {
+          window.location.replace("/landing.html");
+          return;
+        }
+
         window.location.hash = "#/login";
         mount({ preserveView: false });
         return;
@@ -3159,6 +3169,15 @@ function clearWorkspaceState() {
 
 function shouldBlockProtectedRoutes() {
   return state.auth.ready && state.auth.configured && !state.auth.user;
+}
+
+function shouldRedirectToStandaloneLanding() {
+  return !isAppShellPath();
+}
+
+function isAppShellPath() {
+  const pathname = String(window.location.pathname || "/");
+  return pathname === "/app" || pathname === "/app/" || pathname === "/app.html";
 }
 
 function shouldUseBackendAuthoritativeData() {
