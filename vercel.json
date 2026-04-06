@@ -18,6 +18,12 @@
       ]
     },
     {
+      "source": "/app.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0" }
+      ]
+    },
+    {
       "source": "/src/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "no-store, max-age=0" }
@@ -25,8 +31,7 @@
     }
   ],
   "rewrites": [
-    { "source": "/", "destination": "/landing.html" },
-    { "source": "/app", "destination": "/index.html" },
-    { "source": "/app/(.*)", "destination": "/index.html" }
+    { "source": "/app", "destination": "/app.html" },
+    { "source": "/app/(.*)", "destination": "/app.html" }
   ]
 }

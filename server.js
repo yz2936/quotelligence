@@ -1955,7 +1955,7 @@ async function serveStatic(requestPath, res) {
     });
     res.end(file);
   } catch {
-    const fallbackPath = requestPath.startsWith("/app") ? "index.html" : "landing.html";
+    const fallbackPath = requestPath.startsWith("/app") ? "app.html" : "index.html";
     const indexFile = await fs.readFile(path.join(__dirname, fallbackPath));
     res.writeHead(200, {
       "cache-control": "no-store, max-age=0",
@@ -1967,11 +1967,11 @@ async function serveStatic(requestPath, res) {
 
 function normalizeStaticPath(requestPath) {
   if (requestPath === "/") {
-    return "/landing.html";
+    return "/index.html";
   }
 
   if (requestPath === "/app" || requestPath === "/app/") {
-    return "/index.html";
+    return "/app.html";
   }
 
   return requestPath;
