@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getEmailIntakePublicConfig, syncEmailIntakeMailbox } from "./server/email-intake-service.js";
+import { buildDemoWorkspace } from "./server/demo-data.js";
 import { loadEnv } from "./server/env.js";
 import { extractEmailPackageFromBuffer } from "./server/file-text-extractor.js";
 import { buildAutoFollowUpConfig, buildFollowUpEmailDraft, getEmailDeliveryPublicConfig, processDueAutoFollowUps, sendFollowUpEmail } from "./server/follow-up-service.js";
@@ -11,7 +12,7 @@ import { buildCaseFromSubmission, deriveCaseStatus, deriveMissingInfo, getAllowe
 import { answerWorkspaceQuestion } from "./server/openai-client.js";
 import { buildComplianceTraceability, buildKnowledgeComparison, buildKnowledgeFilesFromUpload, deriveKnowledgeStatus, getKnowledgeCategories, normalizeStoredQuoteEstimate, summarizeKnowledgeFile } from "./server/knowledge-service.js";
 import { buildQuoteDraft, buildQuoteEmail, buildQuoteDocument } from "./server/quote-service.js";
-import { deleteCase, deleteComplaint, deleteKnowledgeFile, getAnalystThread, getCase, getComplaint, getKnowledgeFile, getStoreHealth, getStoreMode, listCases, listComplaints, listKnowledgeFiles, saveAnalystThread, saveCase, saveComplaint, saveKnowledgeFile } from "./server/store.js";
+import { clearOwnerWorkspace, deleteCase, deleteComplaint, deleteKnowledgeFile, getAnalystThread, getCase, getComplaint, getKnowledgeFile, getStoreHealth, getStoreMode, listCases, listComplaints, listKnowledgeFiles, saveAnalystThread, saveCase, saveComplaint, saveKnowledgeFile } from "./server/store.js";
 import { authenticateRequest, getPublicSupabaseConfig } from "./server/supabase-auth.js";
 import { applyCheckpointDecision, syncCaseWorkflow } from "./server/workflow-engine.js";
 
@@ -223,6 +224,44 @@ export async function handleRequest(req, res) {
 
       await saveComplaint(complaint, requestOwnerId);
       return sendJson(res, 201, { complaint });
+    }
+
+    if (url.pathname === "/api/demo/seed" && req.method === "POST") {
+      const demoWorkspace = buildDemoWorkspace({
+        ownerUserId: requestOwnerId,
+        ownerEmail: requestOwnerEmail,
+      });
+
+      for (const caseRecord of demoWorkspace.cases) {
+        await saveCase(caseRecord, requestOwnerId);
+      }
+
+      for (const knowledgeFile of demoWorkspace.knowledgeFiles) {
+        await saveKnowledgeFile(knowledgeFile, requestOwnerId);
+      }
+
+      for (const complaint of demoWorkspace.complaints) {
+        await saveComplaint(complaint, requestOwnerId);
+      }
+
+      await saveAnalystThread(demoWorkspace.analystThread, requestOwnerId);
+
+      return sendJson(res, 200, {
+        seeded: true,
+        counts: {
+          cases: demoWorkspace.cases.length,
+          knowledgeFiles: demoWorkspace.knowledgeFiles.length,
+          complaints: demoWorkspace.complaints.length,
+        },
+      });
+    }
+
+    if (url.pathname === "/api/demo/reset" && req.method === "POST") {
+      await clearOwnerWorkspace(requestOwnerId);
+
+      return sendJson(res, 200, {
+        reset: true,
+      });
     }
 
     if (url.pathname.startsWith("/api/complaints/") && req.method === "DELETE") {

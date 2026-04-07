@@ -161,6 +161,7 @@ function renderLoginPage(state) {
           value="${escapeAttribute(state.auth.password || "")}"
         />
         <div class="auth-actions">
+          <a class="button button--secondary" href="/">${t(language, "backToOverview")}</a>
           <button class="button button--secondary" data-action="switch-auth-mode" ${state.auth.loading ? "disabled" : ""}>
             ${authMode === "signup" ? t(language, "authSwitchToLogin") : t(language, "authSwitchToSignup")}
           </button>
@@ -2562,6 +2563,84 @@ function renderDashboardPage(state) {
     title: t(language, "dashboardNav"),
     body: `
       <div class="content-stack quote-workspace">
+        <article class="summary-card dashboard-hero">
+          <div class="page-toolbar">
+            <div>
+              <p class="eyebrow">${t(language, "dashboardStartTitle")}</p>
+              <h3>${t(language, "dashboardStartHeading")}</h3>
+              <p class="muted">${t(language, "dashboardStartBody")}</p>
+            </div>
+            <div class="page-toolbar__actions">
+              <a class="button button--secondary" href="#/intake">${t(language, "newIntake")}</a>
+              <button class="button button--secondary ${state.dashboard.actionLoading ? "button--disabled" : ""}" data-action="seed-demo-workspace" ${state.dashboard.actionLoading ? "disabled" : ""}>${t(language, "seedDemoWorkspace")}</button>
+              <button class="button ${state.dashboard.actionLoading ? "button--disabled" : ""}" data-action="reset-demo-workspace" ${state.dashboard.actionLoading ? "disabled" : ""}>${t(language, "resetDemoWorkspace")}</button>
+            </div>
+          </div>
+          ${state.dashboard.feedback ? `<p class="muted">${escapeHtml(state.dashboard.feedback)}</p>` : ""}
+        </article>
+        ${
+          !state.cases.length
+            ? `
+              <article class="summary-card">
+                <p class="eyebrow">${t(language, "dashboardEmptyTitle")}</p>
+                <h3>${t(language, "dashboardEmptyHeading")}</h3>
+                <p class="muted">${t(language, "dashboardEmptyBody")}</p>
+              </article>
+            `
+            : `
+              <div class="content-grid">
+                <article class="summary-card">
+                  <p class="eyebrow">${t(language, "dashboardRecentCasesTitle")}</p>
+                  <div class="dashboard-list">
+                    ${state.cases
+                      .slice(0, 4)
+                      .map(
+                        (entry) => `
+                          <article class="dashboard-list-item">
+                            <div>
+                              <h4>${escapeHtml(entry.customerName || t(language, "customer"))}</h4>
+                              <p class="muted">${escapeHtml(entry.caseId)} · ${escapeHtml(entry.projectName || t(language, "noneLabel"))}</p>
+                            </div>
+                            <div class="dashboard-list-item__meta">
+                              ${renderStatusBadge(entry.status, language)}
+                              <a class="button button--small button--secondary" href="#/case">${t(language, "openWorkspace")}</a>
+                            </div>
+                          </article>
+                        `
+                      )
+                      .join("")}
+                  </div>
+                </article>
+                <article class="summary-card">
+                  <p class="eyebrow">${t(language, "dashboardRecentKnowledgeTitle")}</p>
+                  ${
+                    stats.recentKnowledgeFiles?.length
+                      ? `
+                        <div class="dashboard-list">
+                          ${stats.recentKnowledgeFiles
+                            .slice(0, 4)
+                            .map(
+                              (entry) => `
+                                <article class="dashboard-list-item dashboard-list-item--compact">
+                                  <div>
+                                    <h4>${escapeHtml(entry.name)}</h4>
+                                    <p class="muted">${escapeHtml(entry.category)} · ${escapeHtml(entry.type || t(language, "noneLabel"))}</p>
+                                  </div>
+                                  <div class="dashboard-list-item__meta">
+                                    <strong>${escapeHtml(String(entry.uploadedAt || "").slice(0, 10))}</strong>
+                                  </div>
+                                </article>
+                              `
+                            )
+                            .join("")}
+                        </div>
+                      `
+                      : `<p class="muted">${t(language, "dashboardRecentKnowledgeEmpty")}</p>`
+                  }
+                </article>
+              </div>
+            `
+        }
         ${
           stats.pendingFollowUps > 0
             ? `<div class="summary-card"><p><strong>${t(language, "pendingFollowUpsBanner")} ${escapeHtml(String(stats.pendingFollowUps))}</strong></p><p class="muted"><a href="#/outcomes">${t(language, "goToOutcomes")}</a></p></div>`

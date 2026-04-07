@@ -336,6 +336,30 @@ export async function fetchDashboardStats() {
   return handleJson(response);
 }
 
+export async function seedDemoWorkspace() {
+  const response = await apiFetch("/api/demo/seed", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({}),
+  });
+
+  return handleJson(response);
+}
+
+export async function resetDemoWorkspace() {
+  const response = await apiFetch("/api/demo/reset", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({}),
+  });
+
+  return handleJson(response);
+}
+
 // Feature 4: Compliance Traceability Check
 export async function runComplianceCheck(caseId, language, caseSnapshot = null) {
   const response = await apiFetch(`/api/cases/${encodeURIComponent(caseId)}/compliance-check`, {
@@ -437,7 +461,7 @@ function inferNonJsonApiError({ body, context, response }) {
       trimmed === "" ||
       lowered.includes("not found"))
   ) {
-    return "Backend API is not available on this server. Open the app from the Node.js server preview instead of a static file server.";
+    return "Backend API is not available on this server. Open the product shell from /app instead of a static-only route.";
   }
 
   if (response.status >= 500) {

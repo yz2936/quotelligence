@@ -524,6 +524,45 @@ export async function saveAnalystThread(threadRecord, ownerUserId = "") {
   return recordToSave;
 }
 
+export async function clearOwnerWorkspace(ownerUserId = "") {
+  const scope = normalizeOwnerScope(ownerUserId);
+
+  if (shouldUseDatabase()) {
+    await ensureDatabaseSchema();
+
+    if (scope) {
+      await getPool().query(`DELETE FROM cases WHERE owner_user_id = $1`, [scope]);
+      await getPool().query(`DELETE FROM complaints WHERE owner_user_id = $1`, [scope]);
+      await getPool().query(`DELETE FROM knowledge_files WHERE owner_user_id = $1`, [scope]);
+      await getPool().query(`DELETE FROM analyst_threads WHERE owner_user_id = $1`, [scope]);
+    } else {
+      await getPool().query(`TRUNCATE TABLE analyst_threads, complaints, knowledge_files, cases`);
+    }
+
+    return;
+  }
+
+  const store = loadFileStore();
+
+  if (!scope) {
+    writeFileStore({
+      cases: [],
+      complaints: [],
+      knowledgeFiles: [],
+      analystThreads: [],
+    });
+    return;
+  }
+
+  writeFileStore({
+    ...store,
+    cases: store.cases.filter((entry) => !matchesOwnerScope(entry, scope)),
+    complaints: store.complaints.filter((entry) => !matchesOwnerScope(entry, scope)),
+    knowledgeFiles: store.knowledgeFiles.filter((entry) => !matchesOwnerScope(entry, scope)),
+    analystThreads: store.analystThreads.filter((entry) => !matchesOwnerScope(entry, scope)),
+  });
+}
+
 export function getStoreMode() {
   return shouldUseDatabase() ? "database" : "file";
 }

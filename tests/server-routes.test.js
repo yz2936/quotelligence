@@ -5,6 +5,47 @@ import test from "node:test";
 import { handleRequest } from "../server.js";
 import { __resetStoreForTests, saveCase, saveKnowledgeFile } from "../server/store.js";
 
+const ENV_SNAPSHOT = {
+  DATABASE_URL: process.env.DATABASE_URL,
+  POSTGRES_URL: process.env.POSTGRES_URL,
+  POSTGRES_PRISMA_URL: process.env.POSTGRES_PRISMA_URL,
+  STORAGE_POSTGRES_URL: process.env.STORAGE_POSTGRES_URL,
+  STORAGE_POSTGRES_PRISMA_URL: process.env.STORAGE_POSTGRES_PRISMA_URL,
+  STORAGE_POSTGRES_URL_NON_POOLING: process.env.STORAGE_POSTGRES_URL_NON_POOLING,
+  SUPABASE_URL: process.env.SUPABASE_URL,
+  NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+  STORAGE_SUPABASE_URL: process.env.STORAGE_SUPABASE_URL,
+  NEXT_PUBLIC_STORAGE_SUPABASE_URL: process.env.NEXT_PUBLIC_STORAGE_SUPABASE_URL,
+  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  SUPABASE_PUBLISHABLE_KEY: process.env.SUPABASE_PUBLISHABLE_KEY,
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  STORAGE_SUPABASE_ANON_KEY: process.env.STORAGE_SUPABASE_ANON_KEY,
+  NEXT_PUBLIC_STORAGE_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_STORAGE_SUPABASE_ANON_KEY,
+  STORAGE_SUPABASE_PUBLISHABLE_KEY: process.env.STORAGE_SUPABASE_PUBLISHABLE_KEY,
+  NEXT_PUBLIC_STORAGE_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STORAGE_SUPABASE_PUBLISHABLE_KEY,
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  STORAGE_SUPABASE_SERVICE_ROLE_KEY: process.env.STORAGE_SUPABASE_SERVICE_ROLE_KEY,
+};
+
+test.beforeEach(() => {
+  __resetStoreForTests();
+
+  for (const key of Object.keys(ENV_SNAPSHOT)) {
+    delete process.env[key];
+  }
+});
+
+test.after(() => {
+  for (const [key, value] of Object.entries(ENV_SNAPSHOT)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+});
+
 test("system status route returns JSON", async () => {
   const response = await invokeRoute({
     method: "GET",
@@ -16,6 +57,29 @@ test("system status route returns JSON", async () => {
 
   const payload = JSON.parse(response.body);
   assert.equal(payload.system.backendAvailable, true);
+});
+
+test("root static route serves the standalone landing page", async () => {
+  const response = await invokeRoute({
+    method: "GET",
+    url: "/",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(String(response.headers["content-type"] || ""), /text\/html/i);
+  assert.match(response.body, /Quotelligence \| RFQ-to-Quote Copilot/);
+});
+
+test("app static route serves the application shell", async () => {
+  const response = await invokeRoute({
+    method: "GET",
+    url: "/app",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(String(response.headers["content-type"] || ""), /text\/html/i);
+  assert.match(response.body, /QuoteCase Copilot/);
+  assert.match(response.body, /src\/main\.js/);
 });
 
 test("intake route returns JSON 422 when a PDF cannot be parsed", async () => {
@@ -357,6 +421,45 @@ test("dashboard stats route returns JSON insight payload", async () => {
   assert.ok(Array.isArray(payload.stats.narrative));
   assert.ok(payload.stats.casesByKnowledgeStatus);
   assert.ok(Array.isArray(payload.stats.knowledgeCategoryMix));
+});
+
+test("demo seed and reset routes populate and clear workspace data", async () => {
+  const seedResponse = await invokeRoute({
+    method: "POST",
+    url: "/api/demo/seed",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: Buffer.from("{}"),
+  });
+
+  assert.equal(seedResponse.statusCode, 200);
+
+  const casesResponse = await invokeRoute({
+    method: "GET",
+    url: "/api/cases",
+  });
+
+  assert.equal(casesResponse.statusCode, 200);
+  assert.ok(JSON.parse(casesResponse.body).cases.length >= 2);
+
+  const resetResponse = await invokeRoute({
+    method: "POST",
+    url: "/api/demo/reset",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: Buffer.from("{}"),
+  });
+
+  assert.equal(resetResponse.statusCode, 200);
+
+  const casesAfterReset = await invokeRoute({
+    method: "GET",
+    url: "/api/cases",
+  });
+
+  assert.equal(JSON.parse(casesAfterReset.body).cases.length, 0);
 });
 
 test("pending outcomes route includes sent quotes even before they are overdue", async () => {

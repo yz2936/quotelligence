@@ -1,0 +1,395 @@
+function isoDate(daysOffset = 0) {
+  const value = new Date(Date.now() + daysOffset * 24 * 60 * 60 * 1000);
+  return value.toISOString();
+}
+
+function dateOnly(daysOffset = 0) {
+  return isoDate(daysOffset).slice(0, 10);
+}
+
+export function buildDemoWorkspace({ ownerUserId = "", ownerEmail = "" } = {}) {
+  const primaryCaseId = "QC-DEMO-001";
+  const blockedCaseId = "QC-DEMO-002";
+
+  const primaryCase = {
+    caseId: primaryCaseId,
+    title: "HeatEx condenser retrofit seamless tube RFQ",
+    customerName: "HeatEx Asia",
+    projectName: "Singapore Condenser Retrofit",
+    owner: ownerEmail || "demo.presenter@quotelligence.ai",
+    status: "Ready to Quote",
+    createdAt: dateOnly(-3),
+    updatedAt: dateOnly(0),
+    sourceFiles: [
+      { fileId: "src-1", name: "HeatEx_RFQ.pdf", type: "PDF", sourceReference: "Uploaded RFQ PDF" },
+      { fileId: "src-2", name: "commercial-notes.eml", type: "EML", sourceReference: "Forwarded buyer email" },
+    ],
+    productItems: [
+      {
+        productId: "product-1",
+        label: "TP316L seamless tube",
+        productType: "Seamless Tube",
+        materialGrade: "ASTM A213 TP316L",
+        quantity: "24 tons",
+        outsideDimension: '25.4 mm',
+        wallThickness: "2.11 mm",
+        schedule: "SCH 10S",
+        lengthPerPiece: "6 m",
+        dimensions: '25.4 mm x 2.11 mm x 6 m',
+      },
+      {
+        productId: "product-2",
+        label: "TP316L U-bend return tube",
+        productType: "U-Bend Tube",
+        materialGrade: "ASTM A213 TP316L",
+        quantity: "8 tons",
+        outsideDimension: '19.05 mm',
+        wallThickness: "1.65 mm",
+        schedule: "SCH 10S",
+        lengthPerPiece: "12 m",
+        dimensions: '19.05 mm x 1.65 mm x 12 m',
+      },
+    ],
+    extractedFields: [
+      { fieldName: "Product Type", value: "Seamless Tube and U-Bend Tube", confidence: "high", sourceReference: "HeatEx_RFQ.pdf" },
+      { fieldName: "Material / Grade", value: "ASTM A213 TP316L", confidence: "high", sourceReference: "HeatEx_RFQ.pdf" },
+      { fieldName: "Requested Standards", value: "ASTM A213, EN 10204 3.1, NACE MR0175", confidence: "high", sourceReference: "HeatEx_RFQ.pdf" },
+      { fieldName: "Destination", value: "Singapore", confidence: "high", sourceReference: "commercial-notes.eml" },
+      { fieldName: "Delivery Request", value: "First shipment requested within 5 weeks", confidence: "medium", sourceReference: "commercial-notes.eml" },
+    ],
+    missingInfo: {
+      missingFields: [],
+      ambiguousRequirements: ["Confirm whether third-party witness inspection is mandatory for both line items."],
+      lowConfidenceItems: [],
+    },
+    aiSummary: {
+      whatCustomerNeeds: "Buyer needs corrosion-resistant exchanger tubing with 3.1 documentation, NACE compliance support, and a short delivery window for a retrofit shutdown.",
+      straightforward: ["Material and dimensions are clear for both line items.", "Destination and commercial timing are understood."],
+      needsClarification: ["Witness inspection scope is not explicit across both items."],
+      knowledgeBaseChecks: ["Validate historical pricing for TP316L seamless tube.", "Confirm standard pack and lead-time assumptions for Singapore lane."],
+      recommendedNextStep: "Proceed with draft quote, surface the witness inspection clarification, and position lead-time confidence with supporting standards files.",
+      mainRisks: ["Compressed delivery window may pressure margin.", "Inspection scope could create an unpriced commercial exception."],
+      currentStatus: "Ready to Quote",
+    },
+    suggestedQuestions: [
+      "Can you confirm whether third-party witness inspection is required for both the straight tube and U-bend items?",
+      "Is partial shipment acceptable if straight tube can ship ahead of U-bends?",
+    ],
+    knowledgeComparison: {
+      analysisSummary: "Knowledge support is strong. Standards files and pricing history support the requested specification, with one open clarification on witness inspection scope.",
+      recommendedStatus: "Ready to Quote",
+      supportedRequirements: [
+        { requirement: "ASTM A213 TP316L", status: "supported", supportingFiles: ["ASTM-A213-reference.pdf"] },
+        { requirement: "EN 10204 3.1", status: "supported", supportingFiles: ["Standard-document-pack.pdf"] },
+        { requirement: "NACE MR0175", status: "supported", supportingFiles: ["NACE-capability-note.pdf"] },
+      ],
+      unsupportedRequirements: [],
+      clarificationItems: ["Witness inspection scope still needs buyer confirmation."],
+      supportingFiles: ["ASTM-A213-reference.pdf", "Pricing-benchmark-Q1.xlsx", "NACE-capability-note.pdf"],
+    },
+    quoteEstimate: {
+      currency: "USD",
+      subtotal: 48250,
+      total: 49795,
+      summary: "Commercially viable quote with one yellow review point on inspection scope. Margin remains healthy if shipment is split by manufacturing path.",
+      pricingStrategy: "Hold margin and defend with lead-time and compliance support.",
+      blendedMarginPct: 18.2,
+      incoterm: "FOB Shanghai",
+      flagCounts: { green: 1, yellow: 1, red: 0 },
+      decisionRecommendation: {
+        strategy: "hold_margin",
+        confidenceScore: 74,
+        leadTimeDaysMin: 28,
+        leadTimeDaysMax: 35,
+        pricePerTonMin: 1490,
+        pricePerTonMax: 1575,
+        rationale: [
+          "Recent TP316L pricing supports a disciplined price band.",
+          "Lead time remains credible if the straight tube lot is prioritized first.",
+        ],
+      },
+      lineItems: [
+        {
+          lineId: "line-1",
+          productId: "product-1",
+          productLabel: "TP316L seamless tube",
+          quantityText: "24 tons",
+          quantityValue: 24,
+          quantityUnit: "ton",
+          unitPrice: 1495,
+          finalPrice: 1495,
+          lineTotal: 35880,
+          reviewFlag: "GREEN",
+          pricingBasis: "Q1 benchmark + current melt surcharge",
+          supportingFiles: ["Pricing-benchmark-Q1.xlsx"],
+          humanReviewed: true,
+        },
+        {
+          lineId: "line-2",
+          productId: "product-2",
+          productLabel: "TP316L U-bend return tube",
+          quantityText: "8 tons",
+          quantityValue: 8,
+          quantityUnit: "ton",
+          unitPrice: 1545,
+          finalPrice: 1545,
+          lineTotal: 12360,
+          reviewFlag: "YELLOW",
+          pricingBasis: "U-bend premium plus short-run setup",
+          supportingFiles: ["Pricing-benchmark-Q1.xlsx", "NACE-capability-note.pdf"],
+          humanReviewed: true,
+        },
+      ],
+      terms: {
+        paymentTerms: "30% advance, 70% against shipping documents",
+        validityTerms: "Quote valid for 10 calendar days",
+        leadTime: "4-5 weeks ex works, split shipment possible",
+        shippingTerms: "FOB Shanghai, export packing included",
+      },
+      risks: ["Witness inspection scope may add cost or extend release timing."],
+      assumptions: ["Buyer accepts split shipment if U-bend production trails straight tube by one week."],
+      checklist: [
+        { label: "Technical specification reviewed", status: "checked" },
+        { label: "Primary material requirement met", status: "requirement_met" },
+        { label: "Inspection scope exception", status: "decision_needed" },
+      ],
+    },
+    quoteEmailDraft: {
+      to: "procurement@heatex-asia.com",
+      cc: "eric.zhuang@brava-steel.com",
+      subject: "Quotation Q-20260403-O-001 | Singapore Condenser Retrofit",
+      body: "Attached is our formal quotation package covering TP316L seamless tube and U-bend supply for the Singapore condenser retrofit. Pricing remains valid for 10 days. One buyer clarification remains open on witness inspection scope.",
+      includeQuotePdf: true,
+    },
+    quoteLifecycle: {
+      quoteNumber: "Q-20260403-001",
+      status: "sent",
+      sentAt: isoDate(-1),
+      followUpDue: isoDate(2),
+      totalValue: 49795,
+      currency: "USD",
+      flagCounts: { green: 1, yellow: 1, red: 0 },
+    },
+    quoteHistory: [
+      {
+        historyId: "demo-history-1",
+        type: "snapshot",
+        title: "Initial demo quote snapshot",
+        actor: "system",
+        createdAt: isoDate(-1),
+        summary: "Draft prepared with one yellow line tied to witness inspection scope.",
+        currency: "USD",
+        subtotal: 48250,
+        total: 49795,
+        incoterm: "FOB Shanghai",
+        lifecycleStatus: "sent",
+        terms: {
+          paymentTerms: "30% advance, 70% against shipping documents",
+          validityTerms: "Quote valid for 10 calendar days",
+          leadTime: "4-5 weeks ex works, split shipment possible",
+          shippingTerms: "FOB Shanghai, export packing included",
+        },
+        lineItems: [
+          { productLabel: "TP316L seamless tube", quantityText: "24 tons", quantityValue: 24, quantityUnit: "ton", unitPrice: 1495, lineTotal: 35880 },
+          { productLabel: "TP316L U-bend return tube", quantityText: "8 tons", quantityValue: 8, quantityUnit: "ton", unitPrice: 1545, lineTotal: 12360 },
+        ],
+        emailSubject: "Quotation Q-20260403-O-001 | Singapore Condenser Retrofit",
+      },
+    ],
+    workflow: null,
+    timeline: [
+      { entryId: "demo-timeline-1", type: "created", actor: "system", createdAt: isoDate(-3), summary: "RFQ intake parsed into structured case." },
+      { entryId: "demo-timeline-2", type: "quote_sent", actor: ownerEmail || "demo.presenter@quotelligence.ai", createdAt: isoDate(-1), summary: "Formal quote draft sent to buyer." },
+    ],
+    ownerUserId,
+  };
+
+  const blockedCase = {
+    caseId: blockedCaseId,
+    title: "Belman emergency tube bundle RFQ",
+    customerName: "Belman Process",
+    projectName: "Emergency Tube Bundle",
+    owner: ownerEmail || "demo.presenter@quotelligence.ai",
+    status: "Needs Clarification",
+    createdAt: dateOnly(-2),
+    updatedAt: dateOnly(0),
+    sourceFiles: [{ fileId: "src-1", name: "Belman-RFQ.xlsx", type: "Spreadsheet", sourceReference: "Uploaded workbook" }],
+    productItems: [
+      {
+        productId: "product-1",
+        label: "Alloy 625 welded tube",
+        productType: "Welded Tube",
+        materialGrade: "Alloy 625",
+        quantity: "6 tons",
+        outsideDimension: '38.1 mm',
+        wallThickness: "2.77 mm",
+        schedule: "SCH 40S",
+        lengthPerPiece: "6 m",
+        dimensions: '38.1 mm x 2.77 mm x 6 m',
+      },
+    ],
+    extractedFields: [
+      { fieldName: "Product Type", value: "Welded Tube", confidence: "high", sourceReference: "Belman-RFQ.xlsx" },
+      { fieldName: "Material / Grade", value: "Alloy 625", confidence: "high", sourceReference: "Belman-RFQ.xlsx" },
+      { fieldName: "Inspection Requirements", value: "PMI mentioned, witness unclear", confidence: "medium", sourceReference: "Belman-RFQ.xlsx" },
+    ],
+    missingInfo: {
+      missingFields: ["Delivery destination is not clearly stated."],
+      ambiguousRequirements: ["Inspection witness scope is unclear."],
+      lowConfidenceItems: ["Commercial response deadline may be inferred from email chain."],
+    },
+    aiSummary: {
+      whatCustomerNeeds: "Buyer needs an urgent Alloy 625 welded tube proposal for a bundle repair.",
+      straightforward: ["Core material callout is clear."],
+      needsClarification: ["Destination and inspection scope remain unresolved."],
+      knowledgeBaseChecks: ["Confirm whether inventory substitute exists.", "Check whether PMI package is standard or exception-priced."],
+      recommendedNextStep: "Hold approval until destination and witness scope are clarified.",
+      mainRisks: ["Red-line pricing on unresolved commercial requirement.", "Lead-time risk due to emergency request."],
+      currentStatus: "Needs Clarification",
+    },
+    suggestedQuestions: [
+      "Please confirm delivery destination and required incoterm.",
+      "Do you require witness inspection in addition to PMI and standard mill test certificates?",
+    ],
+    knowledgeComparison: {
+      analysisSummary: "Partial support only. Material capability is understood, but commercial and inspection details remain incomplete.",
+      recommendedStatus: "Partially Supported",
+      supportedRequirements: [{ requirement: "Alloy 625 welded tube capability", status: "supported", supportingFiles: ["Nickel-alloy-capability-note.pdf"] }],
+      unsupportedRequirements: ["Final inspection scope is not grounded in the current record."],
+      clarificationItems: ["Destination missing.", "Witness scope not confirmed."],
+      supportingFiles: ["Nickel-alloy-capability-note.pdf"],
+    },
+    quoteEstimate: {
+      currency: "USD",
+      subtotal: 0,
+      total: 0,
+      summary: "Draft exists only as a commercial placeholder. Approval is blocked until open issues are resolved.",
+      pricingStrategy: "Do not release without clarification.",
+      blendedMarginPct: 0,
+      incoterm: "",
+      flagCounts: { green: 0, yellow: 0, red: 1 },
+      lineItems: [
+        {
+          lineId: "line-1",
+          productId: "product-1",
+          productLabel: "Alloy 625 welded tube",
+          quantityText: "6 tons",
+          quantityValue: 6,
+          quantityUnit: "ton",
+          unitPrice: 0,
+          finalPrice: null,
+          lineTotal: 0,
+          reviewFlag: "RED",
+          pricingBasis: "Destination and inspection premium unresolved",
+          supportingFiles: [],
+          humanReviewed: false,
+        },
+      ],
+      terms: {
+        paymentTerms: "",
+        validityTerms: "",
+        leadTime: "Pending commercial clarification",
+        shippingTerms: "",
+      },
+      risks: ["Commercial release blocked on missing destination and inspection scope."],
+      assumptions: [],
+      checklist: [
+        { label: "Specification checked", status: "checked" },
+        { label: "Exception found", status: "exception_found" },
+        { label: "Decision needed before approval", status: "decision_needed" },
+      ],
+    },
+    quoteEmailDraft: null,
+    quoteLifecycle: {
+      quoteNumber: "Q-20260404-002",
+      status: "draft",
+      totalValue: 0,
+      currency: "USD",
+      flagCounts: { green: 0, yellow: 0, red: 1 },
+    },
+    quoteHistory: [],
+    workflow: null,
+    timeline: [
+      { entryId: "demo-timeline-3", type: "created", actor: "system", createdAt: isoDate(-2), summary: "Emergency RFQ workbook parsed into case." },
+    ],
+    ownerUserId,
+  };
+
+  const knowledgeFiles = [
+    {
+      knowledgeFileId: "KF-DEMO-001",
+      uploadedAt: isoDate(-10),
+      name: "ASTM-A213-reference.pdf",
+      type: "PDF",
+      category: "Standards",
+      summary: "ASTM A213 reference excerpt aligned to heat exchanger seamless tube supply.",
+      extractedText: "ASTM A213 specification excerpt and tubing compliance notes.",
+      ownerUserId,
+    },
+    {
+      knowledgeFileId: "KF-DEMO-002",
+      uploadedAt: isoDate(-5),
+      name: "Pricing-benchmark-Q1.xlsx",
+      type: "Spreadsheet",
+      category: "Pricing",
+      summary: "Q1 benchmark file for stainless and nickel alloy tube pricing.",
+      extractedText: "Workbook with historical order pricing and supplier bands.",
+      workbookPreview: { sheetCount: 3, sheets: [{ name: "historical_orders", rowCount: 12 }, { name: "customers", rowCount: 5 }] },
+      ownerUserId,
+    },
+    {
+      knowledgeFileId: "KF-DEMO-003",
+      uploadedAt: isoDate(-4),
+      name: "NACE-capability-note.pdf",
+      type: "PDF",
+      category: "Certificates",
+      summary: "Internal note describing NACE-capable supply path and documentation controls.",
+      extractedText: "NACE-capable supply note and documentation control summary.",
+      ownerUserId,
+    },
+  ];
+
+  const complaints = [
+    {
+      complaintId: "CMP-DEMO-001",
+      complaintTitle: "Tube OD mismatch on prior shipment",
+      customerName: "HeatEx Asia",
+      status: "Open",
+      createdAt: isoDate(-8),
+      updatedAt: isoDate(-6),
+      emailText: "Customer reported OD mismatch on prior shipment and requested corrective action details before placing the next order.",
+      attachments: [
+        {
+          knowledgeFileId: "CMP-ATT-001",
+          name: "inspection-photos.zip",
+          type: "Archive",
+          category: "Complaint Evidence",
+          summary: "Photos showing bundled tube variation.",
+        },
+      ],
+      summary: "Open complaint linked to OD mismatch on prior bundle shipment.",
+      ownerUserId,
+    },
+  ];
+
+  const analystThread = {
+    updatedAt: isoDate(0),
+    ownerUserId,
+    messages: [
+      {
+        id: "demo-analyst-1",
+        role: "assistant",
+        text: "Demo workspace seeded. Open QC-DEMO-001 to show structured RFQ intake, quote support, and follow-up readiness.",
+        createdAt: isoDate(0),
+        source: "all",
+      },
+    ],
+  };
+
+  return {
+    cases: [primaryCase, blockedCase],
+    knowledgeFiles,
+    complaints,
+    analystThread,
+  };
+}

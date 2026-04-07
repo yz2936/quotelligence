@@ -11,6 +11,7 @@ import {
   fetchComplaint,
   fetchComplaints,
   fetchDashboardStats,
+  resetDemoWorkspace,
   fetchCase,
   fetchCases,
   fetchQuoteDocument,
@@ -34,6 +35,7 @@ import {
   uploadKnowledgeFiles,
   runComplianceCheck,
   saveAnalystMessages,
+  seedDemoWorkspace,
 } from "./api.js";
 import { confidenceLabel, t } from "./i18n.js";
 import {
@@ -185,6 +187,8 @@ const state = {
   dashboard: {
     stats: null,
     loading: false,
+    actionLoading: false,
+    feedback: "",
   },
 };
 
@@ -286,6 +290,18 @@ root.addEventListener("click", async (event) => {
     if (action === "sign-out") {
       event.preventDefault();
       await logout();
+      return;
+    }
+
+    if (action === "seed-demo-workspace") {
+      event.preventDefault();
+      await runDemoSeed();
+      return;
+    }
+
+    if (action === "reset-demo-workspace") {
+      event.preventDefault();
+      await runDemoReset();
       return;
     }
 
@@ -1114,6 +1130,57 @@ async function syncSystemStatus() {
     state.auth.ready = true;
     state.auth.configured = false;
     state.auth.notice = "";
+  }
+}
+
+async function runDemoSeed() {
+  if (state.dashboard.actionLoading) {
+    return;
+  }
+
+  state.error = "";
+  state.dashboard.feedback = "";
+  state.dashboard.actionLoading = true;
+  mount();
+
+  try {
+    await seedDemoWorkspace();
+    state.dashboard.feedback =
+      state.language === "zh"
+        ? "演示数据已写入当前账号工作区。"
+        : "Demo data was seeded into the current workspace.";
+    await syncRouteData();
+    if (state.cases[0]?.caseId) {
+      state.selectedCaseId = state.cases[0].caseId;
+      state.quote.selectedCaseId = state.cases[0].caseId;
+    }
+  } finally {
+    state.dashboard.actionLoading = false;
+    mount({ preserveView: false });
+  }
+}
+
+async function runDemoReset() {
+  if (state.dashboard.actionLoading) {
+    return;
+  }
+
+  state.error = "";
+  state.dashboard.feedback = "";
+  state.dashboard.actionLoading = true;
+  mount();
+
+  try {
+    await resetDemoWorkspace();
+    clearWorkspaceState();
+    state.dashboard.feedback =
+      state.language === "zh"
+        ? "当前账号工作区已清空。"
+        : "The current workspace was reset.";
+    await syncRouteData();
+  } finally {
+    state.dashboard.actionLoading = false;
+    mount({ preserveView: false });
   }
 }
 
@@ -2997,7 +3064,7 @@ function clearCaseCache() {
 
 async function bootstrap() {
   if (shouldRedirectToStandaloneLanding()) {
-    window.location.replace("/landing.html");
+    window.location.replace("/");
     return;
   }
 
@@ -3048,7 +3115,7 @@ async function syncSupabaseAuthClient(supabaseConfig) {
       if (!session) {
         clearWorkspaceState();
         if (shouldRedirectToStandaloneLanding()) {
-          window.location.replace("/landing.html");
+          window.location.replace("/");
           return;
         }
 
