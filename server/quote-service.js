@@ -1,5 +1,5 @@
 import PDFDocument from "pdfkit";
-import { generateQuoteEmailDraft } from "./openai-client.js";
+import { generateQuoteEmailDraft, isExpectedOpenAIFallbackError } from "./openai-client.js";
 import { buildQuoteEstimate, normalizeStoredQuoteEstimate } from "./knowledge-service.js";
 
 export async function buildQuoteDraft({ caseRecord, knowledgeFiles, language = "en" }) {
@@ -34,7 +34,9 @@ export async function buildQuoteEmail({ caseRecord, quoteEstimate, language = "e
       attachmentFileName: structuredDraft.attachmentFileName,
     };
   } catch (error) {
-    console.error("OpenAI quote email generation failed, falling back to template email:", error);
+    if (!isExpectedOpenAIFallbackError(error)) {
+      console.warn("OpenAI quote email generation failed, falling back to template email:", error);
+    }
     return structuredDraft;
   }
 }

@@ -15,6 +15,7 @@ const routes = {
   "#/outcomes": renderOutcomesPage,
   "#/dashboard": renderDashboardPage,
 };
+let stateForRender = { selectedProductIndex: 0 };
 
 export function renderApp(root, state, currentHash) {
   if (!state.auth?.ready) {
@@ -66,7 +67,7 @@ export function renderApp(root, state, currentHash) {
         <section class="sidebar__panel">
           <p class="eyebrow">${t(language, "latestCase")}</p>
           <h2>${currentCase ? currentCase.caseId : t(language, "noCaseYet")}</h2>
-          <p class="muted">${currentCase ? `${currentCase.customerName} · ${currentCase.projectName}` : t(language, "startCreateCase")}</p>
+          <p class="muted">${currentCase ? `${escapeHtml(currentCase.customerName)} · ${escapeHtml(currentCase.projectName)}` : t(language, "startCreateCase")}</p>
           ${renderStatusBadge(currentCase ? currentCase.status : "New", language)}
         </section>
       </aside>
@@ -497,7 +498,7 @@ function renderIntakeScreen(state) {
               ? `<div class="intake-activity-list">
                   ${state.intake.activity.map((item) => `
                     <div class="intake-activity-item">
-                      <span class="intake-activity-item__dot intake-activity-item__dot--${item.status}"></span>
+                      <span class="intake-activity-item__dot intake-activity-item__dot--${toClassToken(item.status)}"></span>
                       <span>${escapeHtml(item.text)}</span>
                     </div>
                   `).join("")}
@@ -544,8 +545,8 @@ function renderMailboxSyncPanel(state) {
             ? summary.items
                 .map(
                   (item) => `
-                    <div class="mailbox-sync-result mailbox-sync-result--${item.status}">
-                      <span class="intake-activity-item__dot intake-activity-item__dot--${item.status}"></span>
+                    <div class="mailbox-sync-result mailbox-sync-result--${toClassToken(item.status)}">
+                      <span class="intake-activity-item__dot intake-activity-item__dot--${toClassToken(item.status)}"></span>
                       <div>
                         <p>${escapeHtml(item.text || "")}</p>
                         ${item.meta ? `<p class="muted">${escapeHtml(item.meta)}</p>` : ""}
@@ -642,18 +643,18 @@ function renderCaseTable(state) {
 
               return `
                 <tr class="case-table__row">
-                  <td>${entry.caseId}</td>
-                  <td>${entry.customerName}</td>
-                  <td>${entry.projectName}</td>
+                  <td>${escapeHtml(entry.caseId)}</td>
+                  <td>${escapeHtml(entry.customerName)}</td>
+                  <td>${escapeHtml(entry.projectName)}</td>
                   <td class="case-table__cell case-table__cell--compact">
                     ${productItems.length
                       ? `
-                        <label class="visually-hidden" for="case-product-${entry.caseId}">${t(language, "includedProducts")}</label>
+                        <label class="visually-hidden" for="case-product-${escapeAttribute(entry.caseId)}">${t(language, "includedProducts")}</label>
                         <select
-                          id="case-product-${entry.caseId}"
+                          id="case-product-${escapeAttribute(entry.caseId)}"
                           class="select-input select-input--compact"
                           data-case-product-index
-                          data-case-id="${entry.caseId}"
+                          data-case-id="${escapeAttribute(entry.caseId)}"
                         >
                           ${productItems
                             .map(
@@ -664,7 +665,7 @@ function renderCaseTable(state) {
                         </select>
                         <p class="case-table__subtext">${escapeHtml(activeProduct?.productType || entry.productType || "Not clearly stated")}</p>
                       `
-                      : `<div>${entry.productType || "Not clearly stated"}</div><p class="case-table__subtext">${t(language, "noParsedProducts")}</p>`}
+                      : `<div>${escapeHtml(entry.productType || "Not clearly stated")}</div><p class="case-table__subtext">${t(language, "noParsedProducts")}</p>`}
                   </td>
                   <td class="case-table__cell case-table__cell--compact">${escapeHtml(activeProduct?.materialGrade || entry.material || "Not clearly stated")}</td>
                   <td class="case-table__cell case-table__cell--compact">${escapeHtml(activeProduct?.quantity || entry.quantity || "Not clearly stated")}</td>
@@ -672,13 +673,13 @@ function renderCaseTable(state) {
                   <td>${renderFlagMix(entry.quoteSummary?.flagCounts || null)}</td>
                   <td>${entry.quoteSummary ? formatMoneyValue(entry.quoteSummary.currency || "USD", entry.quoteSummary.total) : "—"}</td>
                   <td>${renderStatusBadge(entry.status, language)}</td>
-                  <td>${entry.updatedAt}</td>
+                  <td>${escapeHtml(entry.updatedAt)}</td>
                   <td class="case-table__actions">
-                    <button class="button button--small" data-action="open-case" data-case-id="${entry.caseId}">
+                    <button class="button button--small" data-action="open-case" data-case-id="${escapeAttribute(entry.caseId)}">
                       ${t(language, "caseDetail")}
                     </button>
-                    ${entry.quoteSummary ? `<button class="button button--small button--secondary" data-action="open-quote" data-case-id="${entry.caseId}">${t(language, "reviewQuote")}</button>` : ""}
-                    <button class="button button--secondary button--small" data-action="delete-case" data-case-id="${entry.caseId}">
+                    ${entry.quoteSummary ? `<button class="button button--small button--secondary" data-action="open-quote" data-case-id="${escapeAttribute(entry.caseId)}">${t(language, "reviewQuote")}</button>` : ""}
+                    <button class="button button--secondary button--small" data-action="delete-case" data-case-id="${escapeAttribute(entry.caseId)}">
                       ${t(language, "deleteCase")}
                     </button>
                   </td>
@@ -700,8 +701,8 @@ function renderCaseModal(caseData, language) {
         <div class="modal-header">
           <div>
             <p class="eyebrow">${t(language, "caseDetail")}</p>
-            <h3>${caseData.caseId}</h3>
-            <p class="muted">${caseData.customerName} • ${caseData.projectName}</p>
+            <h3>${escapeHtml(caseData.caseId)}</h3>
+            <p class="muted">${escapeHtml(caseData.customerName)} • ${escapeHtml(caseData.projectName)}</p>
           </div>
           <button class="button button--secondary" data-action="close-case-modal">${t(language, "close")}</button>
         </div>
@@ -719,8 +720,8 @@ function renderCaseModal(caseData, language) {
               language,
               body: `
                 <div class="summary-structure">
-                  <div><p class="eyebrow">${t(language, "whatCustomerNeeds")}</p><p>${caseData.aiSummary.whatCustomerNeeds}</p></div>
-                  <div><p class="eyebrow">${t(language, "recommendedNextStep")}</p><p>${caseData.aiSummary.recommendedNextStep}</p></div>
+                  <div><p class="eyebrow">${t(language, "whatCustomerNeeds")}</p><p>${escapeHtml(caseData.aiSummary.whatCustomerNeeds)}</p></div>
+                  <div><p class="eyebrow">${t(language, "recommendedNextStep")}</p><p>${escapeHtml(caseData.aiSummary.recommendedNextStep)}</p></div>
                 </div>
               `,
             })}
@@ -836,8 +837,6 @@ function renderComplianceTraceability(caseData, language) {
     </div>
   `;
 }
-
-let stateForRender = { selectedProductIndex: 0 };
 
 function renderSpecFlags(specFlags) {
   if (!specFlags || !specFlags.length) return "";
@@ -1098,7 +1097,7 @@ function renderAnalystTrace(trace, language, loading) {
         ${steps
           .map(
             (step) => `
-              <div class="analyst-trace__step analyst-trace__step--${escapeHtml(step.status || "pending")}">
+              <div class="analyst-trace__step analyst-trace__step--${toClassToken(step.status || "pending")}">
                 <div class="analyst-trace__step-marker"></div>
                 <div class="analyst-trace__step-body">
                   <p class="analyst-trace__step-label">${escapeHtml(step.label || "")}</p>
@@ -2206,6 +2205,14 @@ function escapeHtml(value) {
 
 function escapeAttribute(value) {
   return escapeHtml(value).replaceAll('"', "&quot;");
+}
+
+function toClassToken(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "neutral";
 }
 
 function formatDateTime(value, language) {

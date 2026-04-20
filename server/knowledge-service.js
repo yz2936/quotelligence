@@ -8,6 +8,7 @@ import {
   generateKnowledgeFileMetadata,
   generateKnowledgeFileSummary,
   generateQuoteEstimateFromKnowledge,
+  isExpectedOpenAIFallbackError,
   mapComplianceRequirements,
 } from "./openai-client.js";
 
@@ -45,7 +46,9 @@ export async function buildKnowledgeComparison({ caseRecord, knowledgeFiles, lan
       language,
     });
   } catch (error) {
-    console.error("OpenAI knowledge comparison failed, falling back to heuristic comparison:", error);
+    if (!isExpectedOpenAIFallbackError(error)) {
+      console.warn("OpenAI knowledge comparison failed, falling back to heuristic comparison:", error);
+    }
     return buildHeuristicKnowledgeComparison({ caseRecord, knowledgeFiles, language });
   }
 }
@@ -75,7 +78,7 @@ export async function buildQuoteEstimate({ caseRecord, knowledgeFiles, language 
       const agent4Result = await runAgent4({ agent1Result, agent2Result, agent3Result, language });
       draftQuote = mapPipelineToQuoteEstimate(agent3Result, agent4Result);
     } catch (pipelineError) {
-      console.error("Agent pipeline (3+4) failed, falling back to standard quote estimate:", pipelineError);
+      console.warn("Agent pipeline (3+4) failed, falling back to standard quote estimate:", pipelineError);
     }
   }
 
@@ -90,7 +93,9 @@ export async function buildQuoteEstimate({ caseRecord, knowledgeFiles, language 
         });
       }
     } catch (error) {
-      console.error("OpenAI quote estimate failed, falling back to heuristic estimate:", error);
+      if (!isExpectedOpenAIFallbackError(error)) {
+        console.warn("OpenAI quote estimate failed, falling back to heuristic estimate:", error);
+      }
       draftQuote = buildHeuristicQuoteEstimate({ caseRecord, knowledgeFiles: pricingFiles, language });
     }
   }
@@ -204,7 +209,9 @@ export async function summarizeKnowledgeFile({ knowledgeFile, language = "en" })
       language,
     });
   } catch (error) {
-    console.error("OpenAI knowledge file summary failed, falling back to heuristic summary:", error);
+    if (!isExpectedOpenAIFallbackError(error)) {
+      console.warn("OpenAI knowledge file summary failed, falling back to heuristic summary:", error);
+    }
     const preview = knowledgeFile.extractedText.replace(/\s+/g, " ").trim().slice(0, 260);
     return {
       summary: `${knowledgeFile.category}: ${preview}${knowledgeFile.extractedText.length > 260 ? "..." : ""}`,
@@ -972,7 +979,9 @@ async function buildKnowledgeMetadata({ name, type, extractedText, workbookPrevi
       language,
     });
   } catch (error) {
-    console.error("OpenAI knowledge file analysis failed, falling back to heuristic metadata:", error);
+    if (!isExpectedOpenAIFallbackError(error)) {
+      console.warn("OpenAI knowledge file analysis failed, falling back to heuristic metadata:", error);
+    }
     const category = classifyKnowledgeFile(name, extractedText);
     const preview = extractedText.replace(/\s+/g, " ").trim().slice(0, 180);
 

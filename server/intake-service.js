@@ -1,6 +1,6 @@
 import path from "node:path";
 import { extractEmailPackageFromBuffer, extractTextFromBuffer } from "./file-text-extractor.js";
-import { extractPdfTextWithOpenAI, generateCaseAnalysis } from "./openai-client.js";
+import { extractPdfTextWithOpenAI, generateCaseAnalysis, isExpectedOpenAIFallbackError } from "./openai-client.js";
 import { initializeCaseWorkflow } from "./workflow-engine.js";
 import { runAgent1, runAgent2, mapPipelineToCaseFields } from "./agent-pipeline.js";
 import { validateProductItemSpecs, extractConflictMessages } from "./spec-validator.js";
@@ -116,7 +116,7 @@ async function createAnalysisWithFallback({ emailText, parsedFiles, language }) 
         const agent2Result = await runAgent2({ agent1Result, language });
         return mapPipelineToCaseFields(agent1Result, agent2Result);
       } catch (pipelineError) {
-        console.error("Agent pipeline (1+2) failed, falling back to standard analysis:", pipelineError);
+        console.warn("Agent pipeline (1+2) failed, falling back to standard analysis:", pipelineError);
       }
     }
 
@@ -132,7 +132,7 @@ async function createAnalysisWithFallback({ emailText, parsedFiles, language }) 
     }
   }
 
-  console.error("No OpenAI API key configured, using heuristic parsing.");
+  console.warn("No OpenAI API key configured, using heuristic parsing.");
   return buildHeuristicAnalysis({ emailText, parsedFiles });
 }
 
@@ -495,7 +495,9 @@ async function normalizeUploadedFile(file) {
         buffer,
       });
     } catch (error) {
-      console.error("OpenAI PDF OCR fallback failed during intake:", error);
+      if (!isExpectedOpenAIFallbackError(error)) {
+        console.warn("OpenAI PDF OCR fallback failed during intake:", error);
+      }
     }
   }
 

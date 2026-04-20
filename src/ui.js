@@ -49,8 +49,8 @@ export function renderMetadataList(items) {
         .map(
           (item) => `
             <div class="metadata-list__item">
-              <dt>${item.label}</dt>
-              <dd>${item.value}</dd>
+              <dt>${escapeHtml(item.label)}</dt>
+              <dd>${escapeHtml(item.value)}</dd>
             </div>
           `
         )
@@ -66,7 +66,7 @@ export function renderTagList(items, language = "en") {
 
   return `
     <div class="tag-list">
-      ${items.map((item) => `<span class="tag">${item}</span>`).join("")}
+      ${items.map((item) => `<span class="tag">${escapeHtml(item)}</span>`).join("")}
     </div>
   `;
 }
@@ -83,15 +83,22 @@ export function renderComparisonResultList(results, language = "en") {
           (result) => `
             <article class="result-card">
               <div class="result-card__header">
-                <h4>${result.requirement}</h4>
+                <h4>${escapeHtml(result.requirement)}</h4>
                 ${renderStatusBadge(result.status, language)}
               </div>
-              <p>${result.explanation}</p>
-              <p class="muted">${t(language, "supportingFiles")}: ${result.supportingFiles.join(", ") || t(language, "noneLabel")}</p>
+              <p>${escapeHtml(result.explanation)}</p>
+              <p class="muted">${t(language, "supportingFiles")}: ${escapeHtml(result.supportingFiles.join(", ") || t(language, "noneLabel"))}</p>
             </article>
           `
         )
         .join("")}
     </div>
   `;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }

@@ -3,6 +3,16 @@ const PDF_OCR_MODEL = "gpt-5";
 const API_URL = "https://api.openai.com/v1/responses";
 const SERVERLESS_OPENAI_TIMEOUT_MS = 15000;
 
+export function isExpectedOpenAIFallbackError(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : "";
+  const combined = `${message}\n${cause}`;
+
+  return ["OPENAI_API_KEY is missing", "ENOTFOUND", "fetch failed", "timed out", "timeout"].some((fragment) =>
+    combined.includes(fragment)
+  );
+}
+
 export async function generateCaseAnalysis({ emailText, files, language = "en" }) {
   const apiKey = process.env.OPENAI_API_KEY;
 
